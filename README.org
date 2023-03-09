@@ -1,0 +1,611 @@
+#+title: A defensive and fast Deflate decompressor in pure Common Lisp
+#+options: ^:{}
+
+* Overview
+:PROPERTIES:
+:CUSTOM_ID: overview
+:END:
+
+The title speaks for itself. I originally wrote this library as a fun exercise
+in implementing something purely from the specification, but it ended up good
+enough to publish. Patching existing libraries would have been difficult due to
+different API promises.
+
+More formats may be added later; obvious candidates are bzip2, xz and zstd. A
+compressor counterpart is highly unlikely. A download can be found [[https://semelz.de/downloads/][here]]; there
+is also a [[https://github.com/se-mz/decompress][Github mirror]] if you're into that.
+
+
+
+** Features
+:PROPERTIES:
+:CUSTOM_ID: features
+:END:
+
+- *Supported formats*: Deflate, zlib, gzip.
+
+- *Safety*: All [[#edge-cases][edge cases]] are properly detected and explicitly handled and
+  malformed data is rejected early. The interface is designed to be hard to
+  misuse; in particular, defaults try to provide the strongest guarantees and
+  built-in integrity checks are run without user intervention. Memory usage is
+  at most linear (and usually constant) with respect to input size. No FFI is
+  used anywhere.
+
+- *No overreads by default*: If the compressed data is well-formed and taken
+  from a byte stream, then no byte beyond the end of the compressed data will be
+  read, allowing this library to be used as a part of complicated stream
+  processing for other formats. This can be explicitly relaxed in the name of
+  performance; see the ~allow-overreads-p~ option to [[#fn-decompress][decompress]]
+  and [[#fn-make-decompression-stream][make-decompression-stream]].
+
+- *Performance*: To my knowledge, this is the fastest Deflate decoder in pure
+  Common Lisp. Under SBCL, file-to-file decompression usually hits 1.7x-2.2x the
+  runtime of GNU gzip and 2.5x-3.4x the runtime of zlib. It is some 1.6x-2.4x
+  faster than [[https://github.com/sharplispers/chipz][chipz]]. See [[#performance][the performance section]] for more details.
+
+
+
+** Quickstart
+:PROPERTIES:
+:CUSTOM_ID: quickstart
+:END:
+
+See the [[#reference][reference]] for more details.
+
+#+include: example.lisp src lisp
+
+
+
+* Comparison to other libraries
+:PROPERTIES:
+:CUSTOM_ID: comparison
+:END:
+
+The other libraries under consideration are [[https://github.com/sharplispers/chipz][chipz]], which is probably the most
+popular library, and [[https://pmsf.eu/resources/lisp/Deflate.html][an implementation by Pierre Mai]] that is compact and notably
+used by Quicklisp.
+
+|                          | semz.decompress-1.0.0            | chipz-20220220                                        | deflate-1.0.1 (Mai)                       |
+|--------------------------+----------------------------------+-------------------------------------------------------+-------------------------------------------|
+| /                        | <                                |                                                       |                                           |
+| supported formats        | deflate, zlib, gzip              | deflate, zlib, gzip, bzip2                            | deflate, zlib, gzip                       |
+| dependencies             | alexandria, trivial‑gray‑streams | -                                                     | -                                         |
+| license                  | MIT                              | BSD‑3                                                 | MIT + BSD‑3's no-advertising clause       |
+|--------------------------+----------------------------------+-------------------------------------------------------+-------------------------------------------|
+| input sources            | vector, stream                   | simple specialized vector, list, stream, pathname     | stream                                    |
+| output destinations      | new vector                       | new vector, provided (s. s.) vector, stream, pathname | stream                                    |
+| Gray stream wrapper      | yes                              | only around other streams                             | no                                        |
+| checksum verification    | automatic                        | automatic                                             | automatic if enabled, disabled by default |
+|--------------------------+----------------------------------+-------------------------------------------------------+-------------------------------------------|
+| [[#edge-cases][edge case handling]]       | very strict                      | almost none                                           | lenient, some oversights                  |
+| partial input            | library error                    | library error                                         | ~end-of-file~ error                       |
+| trailing data            | ignored, not read by default     | ignored, may be read                                  | ignored, never read                       |
+| preset zlib dictionaries | supported                        | unsupported                                           | unsupported                               |
+
+
+
+** Edge case handling
+:PROPERTIES:
+:CUSTOM_ID: edge-cases
+:END:
+
+The Deflate spec has a few rough edges which we deal with as follows.
+
+- Some decompressors allow back references to go beyond the beginning of the
+  output data, pretending that the octets out of bounds were all zeroes. This
+  one always signals an error.
+
+- Huffman trees are uniquely determined by the associated sequence of code
+  lengths, but not every such sequence corresponds to a tree - some leave codes
+  unassigned and some make codes ambiguous. The spec isn't clear on what to do
+  with such sequences (outside of two special cases in §3.2.7). While one can
+  argue that leaving codes unassigned is fine as long as they don't appear, we
+  always signal an error as soon as a sequence doesn't correspond to a
+  (complete) Huffman tree.
+
+- According to §3.2.7, the situation where only a single distance code is used
+  may be represented by having only one code length of one. We enforce that the
+  unique distance code is always encoded as a zero bit and never as a one bit.
+
+- A dynamic Deflate block can omit the encoding for the end-of-block marker. I
+  am convinced that this is an oversight in the standard since the only
+  situation where an encoder would want to output such a block is if it knows in
+  advance the input is infinite and that the miniscule inefficiency of encoding
+  an EOB would be worse than the inefficiency that arises from being unable to
+  change the Huffman tree (no EOB means no new dynamic block).
+
+  However, there's little reason to ban this; since Deflate already allows
+  blocks of arbitrary length, nothing stops a stream from being infinite anyway
+  and a finite input is going to run into EOF either way.
+
+A more detailed comparison of edge case handling across libraries can be found
+below.
+
+| edge case                                                      | semz    | chipz                      | Mai                        |
+|----------------------------------------------------------------+---------+----------------------------+----------------------------|
+| /                                                              | <       |                            | >                          |
+| reserved block type                                            | error   | error                      | error                      |
+| uncompressed zero-length block                                 | handled | handled                    | handled                    |
+| uncompressed block with wrong checksum                         | error   | error                      | error                      |
+| uncompressed zero-length block with wrong checksum             | error   | outputs data               | error                      |
+| reference goes beyond previous output                          | error   | outputs uninitialized data | outputs uninitialized data |
+| uses illegal length code 286/287                               | error   | internal error             | error                      |
+| uses illegal distance code 30/31                               | error   | internal error             | longer range than 29       |
+|----------------------------------------------------------------+---------+----------------------------+----------------------------|
+| dynamic block with one distance code (§3.2.7)                  | handled | misparse                   | handled                    |
+| dynamic block with one distance code, uses the unassigned code | error   | n/a                        | error                      |
+| dynamic block without distance codes (§3.2.7)                  | handled | misparse                   | handled                    |
+| dynamic block without distance codes, tries to use len code    | error   | n/a                        | error                      |
+| Huffman tree with too many items                               | error   | misparse                   | outputs data               |
+| Huffman tree with too few items                                | error   | misparse                   | outputs data               |
+| Huffman tree with too few items, uses an unassigned code       | n/a     | n/a                        | error                      |
+| dynamic block has code lengths expand across len/dist boundary | handled | internal error             | handled                    |
+| dynamic block has code lengths expand out of bounds            | error   | internal error             | internal error             |
+| dynamic block starts by repeating the last code length         | error   | internal error             | internal error             |
+|----------------------------------------------------------------+---------+----------------------------+----------------------------|
+| reference stays in bounds but goes beyond zlib window size     | error   | outputs data               | outputs data               |
+| zlib preset dictionary required but not provided               | error   | outputs data               | error                      |
+| wrong Adler-32 checksum                                        | error   | error                      | outputs data by default    |
+|----------------------------------------------------------------+---------+----------------------------+----------------------------|
+| wrong gzip magic bytes                                         | error   | error                      | error                      |
+| gzip data with wrong CRC-32 checksum                           | error   | error                      | outputs data by default    |
+| gzip data with right CRC-32 checksum but wrong modular length  | error   | outputs data               | outputs data               |
+| gzip data with header checksum                                 | handled | handled                    | handled                    |
+| gzip data with incorrect header checksum                       | error   | outputs data               | outputs data               |
+| inconsistent length fields in extra fields section             | error   | outputs data               | outputs data               |
+
+
+
+** Performance funny numbers
+:PROPERTIES:
+:CUSTOM_ID: performance
+:END:
+
+The performance measurements below are taken on an older x86-64 machine, taking
+the best of five attempts, using each library's idiomatic method of file-to-file
+decompression (i.e. ~copy-stream~ + ~with-open-file~ for semz.decompress,
+~decompress~ with pathnames for chipz, and ~inflate-gzip-stream~ +
+~with-open-file~ for Mai's deflate). We test Mai's implementation both with
+checksums (for a fair comparison) and without checksums (to reflect its
+default).
+
+I tried to keep the benchmark files varied since decompression benchmarks are
+highly input-dependent, but take the results with a grain of salt regardless. As
+a rough baseline, measurements with zlib-1.2.13 and GNU gzip-1.12 are provided,
+using the canonical ~zpipe~ example program and ~gunzip~ respectively.
+
+| file                      |   input size |  output size |   zlib |   gzip | notes                                    |
+|---------------------------+--------------+--------------+--------+--------+------------------------------------------|
+| /                         |            < |            > |      < |      > |                                          |
+|                           |          <r> |          <r> |    <r> |    <r> |                                          |
+| mysql‑boost‑8.0.27.tar.gz | 292,184,025B | 891,115,520B | 3.540s | 5.509s | Biggest tarball I could find off-hand.   |
+| openjdk‑17.0.6_p10.tar.gz | 105,221,267B | 672,163,840B | 2.634s | 4.113s | Big tarball with high compression ratio. |
+| openh264‑2.3.1.tar.gz     |  60,290,897B |  73,205,760B | 0.276s | 0.551s | Big tarball with low compression ratio.  |
+| [[https://semelz.de/files/html_standard.html.gz][html_standard.html.gz]]     |   1,872,784B |  12,803,512B | 0.052s | 0.081s | Gzipped HTML as you'd find online.       |
+| [[https://semelz.de/files/pepper.z][pepper.z]]                  |   2,132,583B |  51,268,000B | 0.097s |      - | Pixel data of a [[https://semelz.de/files/pepper.png][very compressible PNG]].   |
+| [[https://semelz.de/files/mario.z][mario.z]]                   |     888,470B |   3,053,378B | 0.040s |      - | Pixel data of a [[https://semelz.de/files/mario.png][badly compressible PNG]].  |
+
+
+
+*** SBCL-2.3.2
+:PROPERTIES:
+:CUSTOM_ID: performance-sbcl
+:END:
+
+Decompression is a bit diddling domain, so SBCL is unsurprisingly the fastest of
+the tested implementations. We primarily optimize for it and notably use a
+different implementation of CRC-32.
+
+| file                      | semz (overreads) |   semz |  chipz | Mai (checksum) |    Mai |
+|---------------------------+------------------+--------+--------+----------------+--------|
+| /                         |                < |        |        |                |      > |
+|                           |              <r> |    <r> |    <r> |            <r> |    <r> |
+| mysql-boost-8.0.27.tar.gz |           11.81s | 16.84s | 21.26s |         28.39s | 25.68s |
+| openjdk-17.0.6_p10.tar.gz |           6.874s | 8.833s | 14.03s |         14.12s | 12.02s |
+| openh264-2.3.1.tar.gz     |           0.962s | 1.424s | 1.548s |         3.163s | 2.904s |
+| html_standard.html.gz     |           0.126s | 0.161s | 0.262s |         0.260s | 0.219s |
+| pepper.z                  |           0.245s | 0.286s | 0.784s |         0.706s | 0.412s |
+| mario.z                   |           0.050s | 0.066s | 0.094s |         0.112s | 0.095s |
+
+
+
+*** CCL-1.12.1
+:PROPERTIES:
+:CUSTOM_ID: performance-ccl
+:END:
+
+CCL has notoriously slow bit operations, resulting in an overall 6.5x runtime
+compared to SBCL and less pronounced differences between libraries. This is
+apparently being taken care of currently and I'd expect performance to change
+drastically once these fixes land.
+
+| file                      | semz (overreads) |   semz |  chipz | Mai (checksum) |    Mai |
+|---------------------------+------------------+--------+--------+----------------+--------|
+| /                         |                < |        |        |                |      > |
+|                           |              <r> |    <r> |    <r> |            <r> |    <r> |
+| mysql-boost-8.0.27.tar.gz |           78.95s | 81.36s | 116.4s |         118.5s | 111.0s |
+| openjdk-17.0.6_p10.tar.gz |           42.57s | 43.20s | 63.27s |         61.83s | 56.31s |
+| openh264-2.3.1.tar.gz     |           6.665s | 7.157s | 9.925s |         10.69s | 10.05s |
+| html_standard.html.gz     |           0.790s | 0.799s | 1.172s |         1.136s | 1.026s |
+| pepper.z                  |           1.375s | 1.392s | 2.317s |         5.182s | 2.515s |
+| mario.z                   |           0.328s | 0.333s | 0.365s |         0.530s | 0.373s |
+
+
+
+*** ECL-21.2.1
+:PROPERTIES:
+:CUSTOM_ID: performance-ecl
+:END:
+
+40x-50x the runtime of SBCL is rough, but still usable for smaller data.
+
+| file                      | semz (overreads) |   semz |  chipz | Mai (checksum) |    Mai |
+|---------------------------+------------------+--------+--------+----------------+--------|
+| /                         |                < |        |        |                |      > |
+|                           |              <r> |    <r> |    <r> |            <r> |    <r> |
+| mysql-boost-8.0.27.tar.gz |           560.4s | 794.2s | 960.9s |          1246s |  1235s |
+| openjdk-17.0.6_p10.tar.gz |           272.5s | 362.1s | 469.7s |         483.1s | 472.7s |
+| openh264-2.3.1.tar.gz     |           49.94s | 72.93s | 84.89s |         128.6s | 128.4s |
+| html_standard.html.gz     |           4.891s | 6.536s | 8.620s |         8.674s | 8.541s |
+| pepper.z                  |           7.270s | 8.898s | 13.72s |         21.63s | 15.32s |
+| mario.z                   |           2.275s | 3.045s | 2.960s |         4.176s | 3.810s |
+
+
+
+*** ABCL-1.9.1
+:PROPERTIES:
+:CUSTOM_ID: performance-abcl
+:END:
+
+This is the only tested implementation where we perform worse, but you'd
+probably be better off using ~java.util.zip~ anyway. There are some amusing
+aspects to these measurements: Buffering significantly slows down the code but
+CRC-32 calculation is at SBCL speeds.
+
+| file                  | semz (overreads) |   semz |  chipz | Mai (checksum) |    Mai |
+|-----------------------+------------------+--------+--------+----------------+--------|
+| /                     |                < |        |        |                |      > |
+|                       |              <r> |    <r> |    <r> |            <r> |    <r> |
+| html_standard.html.gz |           83.49s | 47.92s | 57.68s |         39.78s | 37.65s |
+| pepper.z              |           169.8s | 128.5s | 96.36s |         102.7s | 99.01s |
+| mario.z               |           34.41s | 17.50s | 26.08s |         12.90s | 12.63s |
+
+
+
+* Reference
+:PROPERTIES:
+:CUSTOM_ID: reference
+:END:
+
+In what follows, an /octet vector/ is a one-dimensional array containing
+/octets/, i.e. integers x with 0 ≤ x ≤ 255. Octet vectors that are passed to the
+library need not be specialized or simple; octet vectors that are returned by
+the library are always both. When we speak of /bounding index designators/, we
+use the term with the same meaning as in Common Lisp, but additionally allow a
+starting index of ~nil~ to denote the beginning. Whenever a function takes
+optional bounding index designators, the default is to denote the entire
+sequence.
+
+
+
+** Function: ~decompress~
+:PROPERTIES:
+:CUSTOM_ID: fn-decompress
+:END:
+
+*decompress* format input
+&key start end output-size allow-overreads-p
+=> decompressed-buffer, header
+
+- ~format~: A format specifier. See [[#fn-list-supported-formats][list-supported-formats]].
+
+- ~input~: Either a ~binary-input-stream~ or an octet vector.
+
+- ~start~, ~end~: Bounding index designators for ~input~ if the latter is a
+  vector. Ignored if ~input~ is a stream.
+
+- ~output-size~: A non-negative integer or ~nil~. The default is ~nil~.
+
+- ~allow-overreads-p~: A generalized boolean. The default is ~nil~.
+
+- ~decompressed-buffer~: An octet vector.
+
+- ~header~: A property list with keyword keys. See [[#fn-decompression-stream-header][decompression-stream-header]].
+
+The most convenient interface to this library. Returns a fresh octet vector that
+contains the decompressed form of the ~format~-compressed data in ~input~.
+
+~output-size~, if not ~nil~, should be the predicted size of the decompressed
+data. If correct, this prevents unnecessary copying at the end.
+
+If ~allow-overreads-p~ is true and ~input~ is a stream, bytes beyond the end of
+the compressed data might end up being read during decompression; enabling this
+option tends to significantly improve performance on stream inputs.
+
+In addition to the options listed above, ~decompress~ can
+take [[#format-specific-options][format-specific options]].
+
+
+
+** Condition: ~decompression-error~
+:PROPERTIES:
+:CUSTOM_ID: c-decompression-error
+:END:
+
+Direct superclasses: ~simple-error~
+
+General superclass for errors related to decompression. While the error message
+gives detailed information about the exact error, we do not distinguish between
+e.g. failed checksums, out of bounds references or malformed Huffman trees on
+the type level since this information is basically useless to a programmatic
+user and usually just an artifact of corruption.
+
+Gross user errors such as passing in invalid bounding index designators or
+returning invalid dictionaries from a [[#format-specific-options][dictionary function]] do /not/ signal a
+~decompression-error~.
+
+
+
+** Condition: ~eof~
+:PROPERTIES:
+:CUSTOM_ID: c-eof
+:END:
+
+Direct superclasses: [[#c-decompression-error][decompression-error]]
+
+Signalled when the input stream/buffer is exhausted. Notably implies that the
+data up until this point was not detectably malformed. Note that even when the
+input is a stream, it is /this/ condition which is signalled, not ~end-of-file~.
+
+
+
+** Condition: ~unrecognized-zlib-dictionary~
+:PROPERTIES:
+:CUSTOM_ID: c-unrecognized-zlib-dictionary
+:END:
+
+Direct superclasses: [[#c-decompression-error][decompression-error]]
+
+Signalled when zlib decompression involves a preset dictionary whose checksum
+isn't recognized by the dictionary function.
+
+Note: This condition is only signalled when preset dictionaries are enabled.
+See [[#format-specific-options][format-specific options]].
+
+
+
+** Function: ~unrecognized-zlib-dictionary-checksum~
+:PROPERTIES:
+:CUSTOM_ID: fn-unrecognized-zlib-dictionary-checksum
+:END:
+
+*unrecognized-zlib-dictionary-checksum* uzd
+=> checksum
+
+- ~uzd~: An [[#c-unrecognized-zlib-dictionary][unrecognized-zlib-dictionary]] condition.
+
+- ~checksum~: An ~(unsigned-byte 32)~.
+
+Returns the unrecognized checksum that was encountered during zlib
+decompression, in the form [[#fn-adler-32][adler-32]] outputs. See [[#format-specific-options][format-specific options]].
+
+
+
+** Function: ~list-supported-formats~
+:PROPERTIES:
+:CUSTOM_ID: fn-list-supported-formats
+:END:
+
+*list-supported-formats* => list
+
+- ~list~: A list of symbols.
+
+Returns a list of symbols that are valid /format specifiers/, i.e. can be used
+as ~format~ arguments to [[#fn-make-decompression-stream][make-decompression-stream]] and [[#fn-decompress][decompress]] to specify a
+compression format.
+
+
+
+** Class: ~decompression-stream~
+:PROPERTIES:
+:CUSTOM_ID: c-decompression-stream
+:END:
+
+Direct superclasses: ~fundamental-binary-input-stream~
+
+Gray stream wrapper that can be used for complicated stream processing. The end
+of file is considered reached when the underlying compressed data ends and all
+associated uncompressed data has been read.
+
+
+
+** Function: ~make-decompression-stream~
+:PROPERTIES:
+:CUSTOM_ID: fn-make-decompression-stream
+:END:
+
+*make-decompression-stream* format input
+&key start end allow-overreads-p
+=> decompression-stream
+
+- ~format~: A format specifier. See [[#fn-list-supported-formats][list-supported-formats]].
+
+- ~input~: Either a ~binary-input-stream~ or an octet vector.
+
+- ~start~, ~end~: Bounding index designators for ~input~ if the latter is a
+  vector. Ignored if ~input~ is a stream.
+
+- ~allow-overreads-p~: A generalized boolean. The default is ~nil~.
+
+- ~decompression-stream~: A [[#c-decompression-stream][decompression-stream]].
+
+The most general interface to this library. Returns a [[#c-decompression-stream][decompression-stream]]
+whence the decompressed form of the ~format~-compressed data in ~input~ can be
+read. ~input~ should not be modified or read from until ~decompression-stream~
+has reached end of file. If ~input~ is a stream, then the caller is responsible
+for closing it.
+
+Calling this function will read header information from ~input~, but no
+decompression will be performed until data is read from ~decompression-stream~.
+
+If ~allow-overreads-p~ is true and ~input~ is a stream, bytes beyond the end of
+the compressed data might end up being read during stream creation and
+decompression; enabling this option tends to significantly improve performance
+on stream inputs.
+
+In addition to the options listed above, ~make-decompression-stream~ can
+take [[#format-specific-options][format-specific options]].
+
+
+
+** Function: ~decompression-stream-format~
+:PROPERTIES:
+:CUSTOM_ID: fn-decompression-stream-format
+:END:
+
+*decompression-stream-format* stream => format
+
+- ~stream~: A [[#c-decompression-stream][decompression-stream]].
+
+- ~format~: A format specifier.
+
+Returns the ~format~ argument used to create ~stream~. ~format~ is always an
+element of the list returned by [[#fn-list-supported-formats][list-supported-formats]].
+
+
+
+** Function: ~decompression-stream-header~
+:PROPERTIES:
+:CUSTOM_ID: fn-decompression-stream-header
+:END:
+
+*decompression-stream-header* stream => header
+
+- ~stream~: A [[#c-decompression-stream][decompression-stream]].
+
+- ~header~: A property list with keyword keys.
+
+Returns the header metadata of the data associated to ~stream~. Depending on the
+format, the possible entries are as below.
+
+*** Deflate
+:PROPERTIES:
+:CUSTOM_ID: header-deflate
+:END:
+
+Deflate data doesn't have a header.
+
+*** Zlib
+:PROPERTIES:
+:CUSTOM_ID: header-zlib
+:END:
+
+- ~window-size~: The declared window size, in bytes.
+
+- ~level~: The "decompression level", a rough measure of whether speed or size
+  were prioritized during compression. Goes from 0 to 3, with 0 meaning fastest
+  and 3 meaning smallest.
+
+- ~dictionary~: The Adler-32 checksum (as returned by [[#fn-adler-32][adler-32]]) of the preset
+  dictionary, if applicable, or ~nil~.
+
+*** Gzip
+:PROPERTIES:
+:CUSTOM_ID: header-gzip
+:END:
+
+We do not bother converting IDs and enumerations into symbols because this
+doesn't meaningfully reduce complexity - the uses for the affected fields are so
+niche that someone who wants to use them is probably more familiar with the raw
+data than anything we come up with.
+
+- ~textp~: Boolean. If true, the data is supposed to be text and might require
+  line ending conversion.
+
+- ~extra-fields~: Alist with two-character-string keys and octet vector values.
+  See gzip spec. Note that keys may be repeated; they have the same order they
+  had in the file.
+
+- ~filename~: String or ~nil~. Filename of the original file, if provided.
+
+- ~comment~: String or ~nil~. Comment field, if provided.
+
+- ~modification-time~: Integer. Modification time of the original file or time
+  of compression, given in Unix time.
+
+- ~extra-flags~: Integer. See gzip spec.
+
+- ~operating-system~: Integer. See gzip spec.
+
+
+
+** Format-specific options
+:PROPERTIES:
+:CUSTOM_ID: format-specific-options
+:END:
+
+The following keyword arguments can be passed to [[#fn-make-decompression-stream][make-decompression-stream]]
+and [[#fn-decompress][decompress]] for specific formats. They are ignored for all other formats.
+
+- ~window-size~ (deflate): A non-negative integer. Determines how far back
+  references can reach; references that go back further result in
+  a [[#c-decompression-error][decompression-error]]. The default is 2^{15}, which results in no restrictions
+  whatsoever.
+
+- ~prefix~, ~prefix-start~, ~prefix-end~ (deflate): Either ~nil~ or an octet
+  vector with optional bounding index designators. If not ~nil~, makes the
+  octets in ~prefix~ available to back references as if they were previous
+  decompressor output. The default is ~nil~.
+
+- ~dictionary~ (zlib): A function or ~nil~. Implements preset dictionaries. If
+  ~nil~ (the default), preset dictionaries are disabled and signal a generic
+  [[#c-decompression-error][decompression-error]] when encountered. The easiest way to use this option is
+  via [[#fn-make-simple-zlib-dictionary][make-simple-zlib-dictionary]].
+
+  In general, a function must take a single ~(unsigned-byte 32)~, representing
+  an Adler-32 checksum as returned by [[#fn-adler-32][adler-32]], and return three
+  values ~prefix~, ~prefix-start~, ~prefix-end~ that are used like the options
+  of the same name for Deflate. If ~prefix~ is ~nil~,
+  an [[#c-unrecognized-zlib-dictionary][unrecognized-zlib-dictionary]] condition is signalled.
+
+
+
+** Function: ~make-simple-zlib-dictionary~
+:PROPERTIES:
+:CUSTOM_ID: fn-make-simple-zlib-dictionary
+:END:
+
+*make-simple-zlib-dictionary* buffers
+=> dictionary
+
+- ~buffers~: A sequence of octet vectors.
+
+- ~dictionary~: A function.
+
+Returns a function suitable to be passed as a ~dictionary~ argument for zlib
+decompression which recognizes every octet vector in the sequence ~buffers~ and
+no others. The vectors should not be modified afterwards. An error is signalled
+if multiple vectors with distinct contents have the same checksum.
+See [[#format-specific-options][format-specific options]] for details and how to make more complicated
+dictionaries.
+
+
+
+** Function: ~adler-32~
+:PROPERTIES:
+:CUSTOM_ID: fn-adler-32
+:END:
+
+*adler-32* data
+&key start end
+=> checksum
+
+- ~data~: An octet vector.
+
+- ~start~, ~end~: Bounding index designators for ~data~.
+
+- ~checksum~: An ~(unsigned-byte 32)~.
+
+Returns the Adler-32 checksum of the given data, in canonical
+~s2~ × 2^{16} + ~s1~ form. This function is provided to help with setting up
+more complicated zlib dictionaries; see [[#format-specific-options][format-specific options]].
