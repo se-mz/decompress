@@ -48,7 +48,7 @@
     (when (< (L->n L) 1)
       (setf L (- (expt 2 30) 1)))
     (let ((max-iterations (floor (L->n L))))
-      (assert (>= L (- (expt 2 16) 1)))
+      (assert (>= L (- p 1)))
       (assert (>= max-iterations 1))
 
       `(defun update-adler-32 (buffer start end state)
