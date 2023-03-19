@@ -24,12 +24,12 @@ is also a [[https://github.com/se-mz/decompress][Github mirror]] if you're into 
 
 - *Supported formats*: Deflate, zlib, gzip.
 
-- *Safety*: All [[#edge-cases][edge cases]] are properly detected and explicitly handled and
-  malformed data is rejected early. The interface is designed to be hard to
-  misuse; in particular, defaults try to provide the strongest guarantees and
-  built-in integrity checks are run without user intervention. Memory usage is
-  at most linear (and usually constant) with respect to input size. No FFI is
-  used anywhere.
+- *Safety*: All [[#edge-cases][edge cases]] are properly detected and explicitly
+  handled; malformed data is rejected early. The interface is designed to be
+  hard to misuse; in particular, defaults try to provide the strongest
+  guarantees and built-in integrity checks are run without user intervention.
+  Memory usage is at most linear (and usually constant) with respect to input
+  size. No FFI is used anywhere.
 
 - *No overreads by default*: If the compressed data is well-formed and taken
   from a byte stream, then no byte beyond the end of the compressed data will be

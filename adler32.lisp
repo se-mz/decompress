@@ -1,7 +1,7 @@
 ;;;; Adler-32 checksum
 ;;;
 ;;; The state of the Adler-32 hash function is a pair of integers (s1, s2), both
-;;; modulo the prime p = 65521, initially (1,0). For each byte b, we update to
+;;; modulo the prime p = 65521, initially (1,0). For each byte `b', we update to
 ;;; (s1+b mod p, s2+s1+b mod p). The checksum of a byte string a_1, ..., a_n is
 ;;; therefore
 ;;;
@@ -14,9 +14,9 @@
 ;;; for a while; it is almost always possible to delay reduction so that bignum
 ;;; arithmetic is avoided.
 ;;;
-;;; If L is the maximal value that s1 and s2 may take on before reduction, then
-;;; the largest number of iterations you can perform without running the risk of
-;;; bignum arithmetic is the largest n > 0 such that
+;;; If `L' is the maximal value that `s1' and `s2' may take on before reduction,
+;;; then the largest number of iterations you can perform without running the
+;;; risk of going beyond `L' is the largest n > 0 such that
 ;;;
 ;;;     p-1 + n * 255,
 ;;;
@@ -24,7 +24,7 @@
 ;;;       = p-1 + n(p-1) + 255 * n(n+1)/2
 ;;;       = 255/2 * n² + (p-1 + 255/2) * n + p-1
 ;;;
-;;; are both at most L. Clearly, only the second term matters. Such an `n'
+;;; are both at most `L'. Clearly, only the second term matters. Such an `n'
 ;;; exists if and only if L >= 131295 since for L = 131295, we have n = 1.
 ;;;
 ;;; In practice, `n' is so much larger than our buffer lengths that we only
