@@ -72,7 +72,7 @@ decompression, in the form `adler-32' outputs.")
                                 (ash (lbr-read-bits br 8)  8)
                                 (ash (lbr-read-bits br 8)  0))))
           (unless (= checksum (zs-checksum-state zs))
-            (die "Invalid data checksum (wanted ~4,'0x, got ~4,'0x)."
+            (die "Invalid data checksum (wanted ~8,'0x, got ~8,'0x)."
                  checksum (zs-checksum-state zs))))))
 
     (values buffer start end finalp)))
