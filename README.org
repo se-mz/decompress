@@ -118,41 +118,56 @@ The Deflate spec has a few rough edges which we deal with as follows.
   blocks of arbitrary length, nothing stops a stream from being infinite anyway
   and a finite input is going to run into EOF either way.
 
-A more detailed comparison of edge case handling across libraries can be found
-below.
+- Dynamic Deflate blocks can provide encodings for the illegal literal/length
+  codes 286 and 287 as well as the illegal distance codes 30 and 31, although
+  these may never occur in the data. We allow them in blocks since otherwise the
+  fixed Deflate block code wouldn't be expressible dynamically.
 
-| edge case                                                      | semz    | chipz                      | Mai                        |
-|----------------------------------------------------------------+---------+----------------------------+----------------------------|
-| /                                                              | <       |                            | >                          |
-| reserved block type                                            | error   | error                      | error                      |
-| uncompressed zero-length block                                 | handled | handled                    | handled                    |
-| uncompressed block with wrong checksum                         | error   | error                      | error                      |
-| uncompressed zero-length block with wrong checksum             | error   | outputs data               | error                      |
-| reference goes beyond previous output                          | error   | outputs uninitialized data | outputs uninitialized data |
-| uses illegal length code 286/287                               | error   | internal error             | error                      |
-| uses illegal distance code 30/31                               | error   | internal error             | longer range than 29       |
-|----------------------------------------------------------------+---------+----------------------------+----------------------------|
-| dynamic block with one distance code (§3.2.7)                  | handled | misparse                   | handled                    |
-| dynamic block with one distance code, uses the unassigned code | error   | n/a                        | error                      |
-| dynamic block without distance codes (§3.2.7)                  | handled | misparse                   | handled                    |
-| dynamic block without distance codes, tries to use len code    | error   | n/a                        | error                      |
-| Huffman tree with too many items                               | error   | misparse                   | outputs data               |
-| Huffman tree with too few items                                | error   | misparse                   | outputs data               |
-| Huffman tree with too few items, uses an unassigned code       | n/a     | n/a                        | error                      |
-| dynamic block has code lengths expand across len/dist boundary | handled | internal error             | handled                    |
-| dynamic block has code lengths expand out of bounds            | error   | internal error             | internal error             |
-| dynamic block starts by repeating the last code length         | error   | internal error             | internal error             |
-|----------------------------------------------------------------+---------+----------------------------+----------------------------|
-| reference stays in bounds but goes beyond zlib window size     | error   | outputs data               | outputs data               |
-| zlib preset dictionary required but not provided               | error   | outputs data               | error                      |
-| wrong Adler-32 checksum                                        | error   | error                      | outputs data by default    |
-|----------------------------------------------------------------+---------+----------------------------+----------------------------|
-| wrong gzip magic bytes                                         | error   | error                      | error                      |
-| gzip data with wrong CRC-32 checksum                           | error   | error                      | outputs data by default    |
-| gzip data with right CRC-32 checksum but wrong modular length  | error   | outputs data               | outputs data               |
-| gzip data with header checksum                                 | handled | handled                    | handled                    |
-| gzip data with incorrect header checksum                       | error   | outputs data               | outputs data               |
-| inconsistent length fields in extra fields section             | error   | outputs data               | outputs data               |
+A more detailed comparison of edge case handling across libraries can be found
+below. An /error/ is an error of some library-defined type that could be handled
+by a library user; a /basic error/ is something like a failed assertion or
+~(error "foo")~, where the problem is explicitly detected but can't be
+reasonably handled by a user; an /internal error/ is something like a type error
+or an array bounds violation that is signalled by the implementation (but not
+necessarily reliably so).
+
+| edge case                                                      | zlib (zpipe) | semz         | Mai                     | chipz          |
+|----------------------------------------------------------------+--------------+--------------+-------------------------+----------------|
+| /                                                              | <            |              |                         |                |
+| reserved block type                                            | error        | error        | error                   | error          |
+| uncompressed zero-length block                                 | handled      | handled      | handled                 | handled        |
+| uncompressed block with wrong checksum                         | error        | error        | error                   | error          |
+| uncompressed zero-length block with wrong checksum             | error        | error        | error                   | outputs data   |
+| reference goes beyond previous output                          | error        | error        | outputs data            | outputs data   |
+| uses illegal length code 286/287                               | error        | error        | error                   | internal error |
+| uses illegal distance code 30/31                               | error        | error        | longer range than 29    | internal error |
+|----------------------------------------------------------------+--------------+--------------+-------------------------+----------------|
+| dynamic block provides encodings for 286/287 & 30/31           | error        | outputs data | outputs data            | outputs data   |
+| dynamic block with one distance code (§3.2.7)                  | handled      | handled      | handled                 | handled        |
+| dynamic block with one distance code, uses the unassigned code | error        | error        | error                   | internal error |
+| dynamic block without distance codes (§3.2.7)                  | handled      | handled      | handled                 | handled        |
+| dynamic block without distance codes, tries to use len code    | error        | error        | error                   | internal error |
+| Huffman tree with too many items                               | error        | error        | outputs data            | outputs data   |
+| Huffman tree with too few items                                | error        | error        | outputs data            | outputs data   |
+| Huffman tree with too few items, uses an unassigned code       | n/a          | n/a          | error                   | internal error |
+| dynamic block has code lengths expand across len/dist boundary | handled      | handled      | handled                 | basic error    |
+| dynamic block has code lengths expand out of bounds            | error        | error        | internal error          | basic error    |
+| dynamic block starts by repeating the last code length         | error        | error        | internal error          | internal error |
+|----------------------------------------------------------------+--------------+--------------+-------------------------+----------------|
+| reference stays in bounds but goes beyond zlib window size     | outputs data | error        | outputs data            | outputs data   |
+| zlib preset dictionary required but none provided              | error        | error        | error                   | outputs data¹  |
+| wrong Adler-32 checksum                                        | error        | error        | outputs data by default | error          |
+|----------------------------------------------------------------+--------------+--------------+-------------------------+----------------|
+| wrong gzip magic bytes                                         | error        | error        | error                   | error          |
+| gzip data with wrong CRC-32 checksum                           | error        | error        | outputs data by default | error          |
+| gzip data with right CRC-32 checksum but wrong modular length  | error        | error        | outputs data            | outputs data   |
+| gzip data with header checksum                                 | handled      | handled      | handled                 | handled        |
+| gzip data with incorrect header checksum                       | error        | error        | outputs data            | outputs data   |
+| gzip extra fields                                              | handled      | handled      | ignored                 | basic error    |
+| inconsistent length fields in extra fields section             | outputs data | error        | outputs data            | n/a            |
+
+¹ In combination with the behavior for out-of-bounds references, this means that
+data with preset dictionaries will silently decompress incorrectly.
 
 
 
