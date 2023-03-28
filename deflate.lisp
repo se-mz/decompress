@@ -215,7 +215,8 @@
 ;;; (but doesn't update it yet).
 (defun decode-huffman-data (ds dhi)
   (declare (type deflate-state ds)
-           (type deflate-huffman-info dhi))
+           (type deflate-huffman-info dhi)
+           (optimize speed))
   (let* ((litlen-tree  (dhi-litlen-tree  dhi))
          (dist-tree    (dhi-dist-tree    dhi))
          (special-mode (dhi-special-mode dhi))
@@ -226,14 +227,18 @@
          ;; Stop once we can't guarantee that further expansions will fit.
          (threshold (- (length buffer) (- +largest-deflate-expansion+ 1))))
     (declare (type buffer buffer)
-             (type array-length pointer wsize threshold))
+             (type array-length pointer wsize threshold)
+             (type deflate-huffman-tree litlen-tree dist-tree)
+             (type lsb-bit-reader lbr))
     (flet ((decode-length (index)
-             (declare (type (index-for +deflate-length-bases+) index))
+             (declare (type (index-for +deflate-length-bases+) index)
+                      (optimize speed))
              (+ (csvref +deflate-length-bases+ index)
                 (lbr-read-bits lbr (csvref +deflate-length-extra-bits+ index))))
 
            (decode-distance (dist-code)
-             (declare (type (integer 0 31) dist-code))
+             (declare (type (integer 0 31) dist-code)
+                      (optimize speed))
              (when (> dist-code 29)
                ;; See the remark before `lengths->dist-dht'.
                (ecase special-mode
@@ -250,7 +255,8 @@
                 (lbr-read-bits lbr (csvref +deflate-dist-extra-bits+ dist-code))))
 
            (replicate-segment (src-i dest-i length)
-             (declare (type array-length src-i dest-i length))
+             (declare (type array-length src-i dest-i length)
+                      (optimize speed))
              (loop :while (> length 0) :do
                (let ((amount (min length (- dest-i src-i))))
                  (replace buffer buffer :start1 dest-i :end1 (+ dest-i amount)
@@ -281,6 +287,8 @@
                (die "Length code in literal-only block: ~d" code))
              (let ((length (decode-length (- code 257)))
                    (distance (decode-distance (dht-read-code lbr dist-tree))))
+               (declare (type (integer 0 #.+largest-deflate-expansion+) length)
+                        (type (integer 0 #.+largest-deflate-distance+) distance))
                (unless (<= distance (min pointer wsize))
                  (die "Reference points back further (~d) than the window allows (~d)."
                       distance (min pointer wsize)))

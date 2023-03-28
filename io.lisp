@@ -11,7 +11,7 @@
 ;;; input exhaustion, rather than `end-of-file'.
 (cl:in-package #:semz.decompress)
 
-(declaim (inline bs-buffer bs-start bs-end bs-refill-function))
+(declaim (inline bs-buffer bs-start bs-end bs-refill-function buffer-stream-p))
 (defstruct (buffer-stream (:conc-name bs-))
   (buffer +dummy-buffer+ :type buffer)
   (start 0 :type array-length)
