@@ -76,8 +76,8 @@
              (declare (type (integer 0 ,max-read) result-length)
                       (type (unsigned-byte ,max-read) result))
              (loop :while (< result-length n) :do
-               (let ((amount (min (- n result-length) 15)))
-                 (declare (type (integer 1 15) amount))
+               (let ((amount (min (- n result-length) ,max-ensure)))
+                 (declare (type (integer 1 ,max-ensure) amount))
                  (lbr-ensure-bits lbr amount)
                  (setf (ldb (byte amount result-length) result)
                        (lbr-buffer lbr))
