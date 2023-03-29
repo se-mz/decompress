@@ -257,15 +257,13 @@
            (replicate-segment (src-i dest-i length)
              (declare (type array-length src-i dest-i length)
                       (optimize speed))
-             (loop :while (> length 0) :do
-               (let ((amount (min length (- dest-i src-i))))
-                 (replace buffer buffer :start1 dest-i :end1 (+ dest-i amount)
-                                        :start2 src-i  :end2 (+ src-i amount))
-                 ;; There's no need to update `src-i' because at this point we
-                 ;; either are done or have copied a single full segment and can
-                 ;; copy two full segments at once to reduce `replace' calls.
-                 (incf dest-i amount)
-                 (decf length amount)))))
+             ;; Expansions are at most 258 bytes, so a simple copy loop avoids
+             ;; the `replace' argument overhead and naturally deals with the
+             ;; case where source and destination regions overlap.
+             (assert (<= (+ src-i 1) dest-i (- (length buffer) length)))
+             (locally (declare (optimize (safety 0)))
+               (loop :for i :of-type array-length :from 0 :below length :do
+                 (setf (aref buffer (+ dest-i i)) (aref buffer (+ src-i i)))))))
       (declare (ftype (function ((index-for +deflate-length-bases+))
                                 (integer 0 #.+largest-deflate-expansion+))
                       decode-length)
