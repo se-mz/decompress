@@ -62,6 +62,7 @@
 (deftype dht-entry ()
   '(unsigned-byte 13))
 
+(declaim (inline dht-table dht-min-code-length dht-max-code-length dht-full-read-p))
 (defstruct (deflate-huffman-tree (:conc-name dht-))
   (table (required-argument :table) :type (simple-array dht-entry (*)))
   (min-code-length (required-argument :min-code-length) :type (integer 1 15))
