@@ -58,11 +58,7 @@
               (bs-start  source) start
               (bs-end    source) end))))
 
-(declaim (ftype (function (byte-source) octet) bs-read-byte)
-         (inline bs-read-byte))
-(defun bs-read-byte (source)
-  (declare (type byte-source source)
-           (optimize speed))
+(define-fast-function (bs-read-byte octet) ((source byte-source))
   (if (buffer-stream-p source)
       (locally (declare (type buffer-stream source)) ; help out dumber impls
         (when (= (bs-start source) (bs-end source))

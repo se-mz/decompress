@@ -71,12 +71,8 @@
   ;; up the decoding process, rather than having to go byte by byte.
   full-read-p)
 
-(declaim (ftype (function (lsb-bit-reader deflate-huffman-tree) dht-item) dht-read-code)
-         (inline dht-read-code))
-(defun dht-read-code (lbr dht)
-  (declare (type lsb-bit-reader lbr)
-           (type deflate-huffman-tree dht)
-           (optimize speed))
+(define-fast-function (dht-read-code dht-item)
+    ((lbr lsb-bit-reader) (dht deflate-huffman-tree))
   (if (dht-full-read-p dht)
       (let ((max-code-length (dht-max-code-length dht)))
         (lbr-ensure-bits lbr max-code-length)
@@ -94,13 +90,8 @@
                     (return (ash entry -4))))
             :finally (error "Corrupt Huffman tree."))))
 
-(declaim (ftype (function ((unsigned-byte 16) (integer 0 16)) (unsigned-byte 16))
-                reverse-small-integer)
-         (inline reverse-small-integer))
-(defun reverse-small-integer (x n)
-  (declare (type (unsigned-byte 16) x)
-           (type (integer 0 16) n)
-           (optimize speed))
+(define-fast-function (reverse-small-integer (unsigned-byte 16))
+    ((x (unsigned-byte 16)) (n (integer 0 16)))
   ;; Reverse as 16-bit integer first using a standard trick, then fix up for n.
   (setf x (logior (ash (logand x #b1111111100000000) -8)
                   (ash (logand x #b0000000011111111) +8)))

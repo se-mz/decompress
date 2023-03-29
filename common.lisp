@@ -19,6 +19,7 @@
                 #:array-length
                 #:clamp
                 #:define-constant
+                #:ensure-list
                 #:read-stream-content-into-byte-vector
                 #:remove-from-plistf
                 #:required-argument
@@ -86,6 +87,33 @@ input is a stream, it is this condition which is signalled, not `end-of-file'.")
   (with-gensyms (define)
     `(macrolet ((,define () (let* ,bindings ,@code)))
        (,define))))
+
+;;; We rely heavily on typed inline functions rather than big macrolets in the
+;;; interest of readability; this macro removes some of the resulting clutter.
+(defmacro define-fast-function (name-with-optional-return-type (&rest args) &body body)
+  (destructuring-bind (name &optional (return-type '*))
+      (ensure-list name-with-optional-return-type)
+    (setf args (mapcar (lambda (x)
+                         (if (listp x)
+                             (progn
+                               (assert (= 2 (length x)))
+                               x)
+                             (list x 'T)))
+                       args))
+    `(progn
+       (declaim (ftype (function (,@(mapcar #'second args))
+                                 ,@(if (eq return-type '*)
+                                       '()
+                                       `(,return-type)))
+                       ,name)
+                (inline ,name))
+       (defun ,name (,@(mapcar #'first args))
+         (declare ,@(mapcar (lambda (a)
+                              (destructuring-bind (name type) a
+                                `(type ,type ,name)))
+                            args)
+                  (optimize speed))
+         ,@body))))
 
 (defmacro normalize-bounds (array start end)
   (check-type array symbol)

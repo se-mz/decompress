@@ -33,38 +33,24 @@
        (buffer    0 :type (unsigned-byte ,max-buffer))
        (bits-left 0 :type (integer 0 ,max-buffer)))
 
-     (declaim (ftype (function (lsb-bit-reader (integer 0 ,max-ensure))) lbr-ensure-bits)
-              (inline lbr-ensure-bits))
-     (defun lbr-ensure-bits (lbr n)
+     (define-fast-function lbr-ensure-bits
+         ((lbr lsb-bit-reader) (n (integer 0 ,max-ensure)))
        "Ensures that at least `n' bits are buffered in `lbr'."
-       (declare (type lsb-bit-reader lbr)
-                (type (integer 0 ,max-ensure) n)
-                (optimize speed))
        (loop :while (< (lbr-bits-left lbr) n) :do
          (setf (ldb (byte 8 (lbr-bits-left lbr)) (lbr-buffer lbr))
                (bs-read-byte (lbr-source lbr)))
          (incf (lbr-bits-left lbr) 8)))
 
-     (declaim (ftype (function (lsb-bit-reader (integer 0 ,max-ensure))) lbr-dump-bits)
-              (inline lbr-dump-bits))
-     (defun lbr-dump-bits (lbr n)
+     (define-fast-function lbr-dump-bits
+         ((lbr lsb-bit-reader) (n (integer ,0 ,max-ensure)))
        "Removes up to the next `n' bits from the buffer in `lbr'."
-       (declare (type lsb-bit-reader lbr)
-                (type (integer 0 ,max-ensure) n)
-                (optimize speed))
        (assert (>= (lbr-bits-left lbr) n))
        (setf (lbr-buffer lbr) (ash (lbr-buffer lbr) (- n)))
        (decf (lbr-bits-left lbr) n))
 
-     (declaim (ftype (function (lsb-bit-reader (integer 0 ,max-read))
-                               (unsigned-byte ,max-read))
-                     lbr-read-bits)
-              (inline lbr-read-bits))
-     (defun lbr-read-bits (lbr n)
+     (define-fast-function (lbr-read-bits (unsigned-byte ,max-read))
+         ((lbr lsb-bit-reader) (n (integer 0 ,max-read)))
        "Returns and consumes the next `n' bits in `lbr'."
-       (declare (type lsb-bit-reader lbr)
-                (type (integer 0 ,max-read) n)
-                (optimize speed))
        (if (<= n ,max-ensure)
            ;; Fast path for decoders
            (progn
@@ -85,12 +71,9 @@
                  (lbr-dump-bits lbr amount)))
              result)))
 
-     (declaim (inline lbr-flush-byte))
-     (defun lbr-flush-byte (lbr)
+     (define-fast-function lbr-flush-byte ((lbr lsb-bit-reader))
        "Discards buffered bits in `lbr' before the next byte boundary. This function
 does NOT guarantee that bytewise I/O will be usable afterwards."
-       (declare (type lsb-bit-reader lbr)
-                (optimize speed))
        ;; The buffer ends on a byte boundary, so skipping to the next byte boundary
        ;; just means discarding bits until the remaining bits are a multiple of 8.
        (let ((dropped (ldb (byte 3 0) (lbr-bits-left lbr))))
@@ -99,8 +82,7 @@ does NOT guarantee that bytewise I/O will be usable afterwards."
          (setf (lbr-buffer lbr) (ash (lbr-buffer lbr) (- dropped)))
          nil))
 
-     (declaim (inline lbr-byte-source-usable-p))
-     (defun lbr-byte-source-usable-p (lbr)
+     (define-fast-function lbr-byte-source-usable-p ((lbr lsb-bit-reader))
        ,(format nil
                 "Returns whether the underlying byte source can be safely used. This can be
 guaranteed by consuming at least ~d bits without an `lbr-ensure-bits' call."
