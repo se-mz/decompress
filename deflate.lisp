@@ -143,8 +143,8 @@
 ;;;
 ;;; Deflate naturally has a concept of `blocks' - regions of data that follow a
 ;;; particular compression scheme - but these may be of arbitrary size. We
-;;; define chunks to be a section of a block that doesn't exceed a certain size.
-;;; This requires us to be able to "suspend" decompression within a block.
+;;; define chunks to be sections of a certain fixed size, with some wiggle room
+;;; to avoid having to suspend/resume decompression during expansions.
 (defclass deflate-state ()
   ((final-block-p :accessor ds-final-block-p
                   :initform nil
@@ -198,6 +198,11 @@
         :initform nil
         :type (or null deflate-huffman-info))))
 
+;;; If `buffer' contains this many elements, further Deflate expansions risk
+;;; overrunning `buffer', so we should finish the chunk.
+(defun deflate-buffer-fill-threshold (buffer)
+  (- (length buffer) (- +largest-deflate-expansion+ 1)))
+
 ;;; Moves the recently decompressed data to the window portion of the buffer, in
 ;;; preparation for further decompressed output. Note that this function can
 ;;; overwrite freshly decompressed data if the window has just been filled for
@@ -224,8 +229,7 @@
          (buffer       (ds-buffer       ds))
          (pointer      (ds-fill-pointer ds))
          (wsize        (ds-window-size  ds))
-         ;; Stop once we can't guarantee that further expansions will fit.
-         (threshold (- (length buffer) (- +largest-deflate-expansion+ 1))))
+         (threshold    (deflate-buffer-fill-threshold buffer)))
     (declare (type buffer buffer)
              (type array-length pointer wsize threshold)
              (type deflate-huffman-tree litlen-tree dist-tree)
@@ -326,47 +330,49 @@
 (defun next-deflate-chunk (ds trailing-bits)
   (check-type ds deflate-state)
   (check-type trailing-bits integer)
+  ;; It's safe to call this at the beginning when the window is empty, too.
+  (setup-window ds)
 
-  (let ((lbr (ds-bit-reader ds)))
-    ;; It's safe to call this at the beginning when the window is empty, too.
-    (setup-window ds)
+  (let ((lbr (ds-bit-reader ds))
+        (start (ds-fill-pointer ds)))
+    (loop
+      (when (eq :block-boundary (ds-block-type ds))
+        (assert (not (ds-final-block-p ds)))
+        (setf (ds-final-block-p ds) (= 1 (lbr-read-bits lbr 1)))
+        (ecase (lbr-read-bits lbr 2)
+          (#b00
+           (lbr-flush-byte lbr)
+           (let* ((len (lbr-read-bits lbr 16))
+                  (checksum (lbr-read-bits lbr 16))
+                  (required (logxor #xFFFF len)))
+             (unless (= checksum required)
+               (die "Checksum mismatch in uncompressed block (required ~4,'0x, got ~4,'0x)."
+                    required checksum))
+             (setf (ds-block-type ds) :uncompressed
+                   (ds-uncompressed-remaining-bytes ds) len)))
+          (#b01
+           (setf (ds-block-type ds) :fixed))
+          (#b10
+           (setf (ds-block-type ds) :dynamic
+                 (ds-dhi ds) (read-dynamic-dhi (ds-dhi ds) lbr
+                                               (+ (if (ds-final-block-p ds)
+                                                      0
+                                                      +min-deflate-block-bitsize+)
+                                                  trailing-bits))))
+          (#b11 (die "Block uses reserved BTYPE."))))
 
-    (when (eq :block-boundary (ds-block-type ds))
-      (assert (not (ds-final-block-p ds)))
-      (setf (ds-final-block-p ds) (= 1 (lbr-read-bits lbr 1)))
-      (ecase (lbr-read-bits lbr 2)
-        (#b00
-         (lbr-flush-byte lbr)
-         (let* ((len (lbr-read-bits lbr 16))
-                (checksum (lbr-read-bits lbr 16))
-                (required (logxor #xFFFF len)))
-           (unless (= checksum required)
-             (die "Checksum mismatch in uncompressed block (required ~4,'0x, got ~4,'0x)."
-                  required checksum))
-           (setf (ds-block-type ds) :uncompressed
-                 (ds-uncompressed-remaining-bytes ds) len)))
-        (#b01
-         (setf (ds-block-type ds) :fixed))
-        (#b10
-         (setf (ds-block-type ds) :dynamic
-               (ds-dhi ds) (read-dynamic-dhi (ds-dhi ds) lbr
-                                             (+ (if (ds-final-block-p ds)
-                                                    0
-                                                    +min-deflate-block-bitsize+)
-                                                trailing-bits))))
-        (#b11 (die "Block uses reserved BTYPE."))))
-
-    (let* ((buffer (ds-buffer ds))
-           (start (ds-fill-pointer ds))
-           (end (ecase (ds-block-type ds)
-                  (:uncompressed (decode-uncompressed-data ds))
-                  (:fixed        (decode-huffman-data ds (if (ds-final-block-p ds)
-                                                             *fixed-dhi-for-final-block*
-                                                             *fixed-dhi-for-nonfinal-block*)))
-                  (:dynamic      (decode-huffman-data ds (ds-dhi ds))))))
-      (setf (ds-fill-pointer ds) end)
-      (values buffer start end (and (ds-final-block-p ds)
-                                    (eq :block-boundary (ds-block-type ds)))))))
+      (let* ((buffer (ds-buffer ds))
+             (end (ecase (ds-block-type ds)
+                    (:uncompressed (decode-uncompressed-data ds))
+                    (:fixed        (decode-huffman-data ds (if (ds-final-block-p ds)
+                                                               *fixed-dhi-for-final-block*
+                                                               *fixed-dhi-for-nonfinal-block*)))
+                    (:dynamic      (decode-huffman-data ds (ds-dhi ds)))))
+             (finalp (and (ds-final-block-p ds)
+                         (eq :block-boundary (ds-block-type ds)))))
+        (setf (ds-fill-pointer ds) end)
+        (when (or finalp (>= end (deflate-buffer-fill-threshold buffer)))
+          (return (values buffer start end finalp)))))))
 
 (defmethod byte-source->decompression-state
     ((type (eql :deflate)) byte-source
