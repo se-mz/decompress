@@ -88,6 +88,17 @@ input is a stream, it is this condition which is signalled, not `end-of-file'.")
     `(macrolet ((,define () (let* ,bindings ,@code)))
        (,define))))
 
+(defmacro with-prefixed-names (names prefix &body body)
+  `(let (,@(mapcar
+             (lambda (name)
+               `(,name (intern (concatenate 'string
+                                            ;; `prefix' is evaluated
+                                            (string ,prefix)
+                                            ;; `name' isn't
+                                            ,(string name)))))
+             names))
+     ,@body))
+
 ;;; We rely heavily on typed inline functions rather than big macrolets in the
 ;;; interest of readability; this macro removes some of the resulting clutter.
 (defmacro define-fast-function (name-with-optional-return-type (&rest args) &body body)
