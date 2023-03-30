@@ -18,7 +18,9 @@
 (defmacro define-bit-reader (type-name prefix max-ensure max-read endianness)
   (let ((max-buffer (+ max-ensure 8 -1)))
     (with-prefixed-names
-        (source buffer bits-left ensure-bits dump-bits read-bits flush-byte byte-source-usable-p)
+        (source buffer bits-left
+         ensure-bits peek-bits dump-bits read-bits
+         flush-byte byte-source-usable-p)
         prefix
       `(progn
          (declaim (inline ,source ,buffer ,bits-left))
@@ -42,6 +44,12 @@
                                             (bs-read-byte (,source br))))))
                      (incf (,bits-left br) 8)))
 
+         (define-fast-function (,peek-bits (unsigned-byte ,max-ensure))
+             ((br ,type-name) (n (integer ,0 ,max-ensure)))
+           ,(ecase endianness
+              (:le `(ldb (byte n 0) (,buffer br)))
+              (:be `(ash (,buffer br) (- (- (,bits-left br) n))))))
+
          (define-fast-function ,dump-bits
              ((br ,type-name) (n (integer ,0 ,max-ensure)))
            "Removes up to the next `n' bits from the buffer in `br'."
@@ -59,9 +67,7 @@
                ;; Fast path for decoders
                (progn
                  (,ensure-bits br n)
-                 (prog1 ,(ecase endianness
-                           (:le `(ldb (byte n 0) (,buffer br)))
-                           (:be `(ash (,buffer br) (- (- (,bits-left br) n)))))
+                 (prog1 (,peek-bits br n)
                    (,dump-bits br n)))
                (let ((result 0)
                      (result-length 0))
@@ -71,12 +77,12 @@
                    (let ((amount (min (- n result-length) ,max-ensure)))
                      (declare (type (integer 1 ,max-ensure) amount))
                      (,ensure-bits br amount)
-                     ,(ecase endianness
-                        (:le `(setf (ldb (byte amount result-length) result)
-                                    (,buffer br)))
-                        (:be `(setf result (logior (ash result amount)
-                                                   (ash (,buffer br)
-                                                        (- (- (,bits-left br) amount)))))))
+                     (setf result
+                           ,(ecase endianness
+                              (:le `(logior (ash (,peek-bits br amount) result-length)
+                                            result))
+                              (:be `(logior (,peek-bits br amount)
+                                            (ash result amount)))))
                      (incf result-length amount)
                      (,dump-bits br amount)))
                  result)))

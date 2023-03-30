@@ -88,7 +88,7 @@ input is a stream, it is this condition which is signalled, not `end-of-file'.")
     `(macrolet ((,define () (let* ,bindings ,@code)))
        (,define))))
 
-(defmacro with-prefixed-names (names prefix &body body)
+(defmacro with-prefixed-names ((&rest names) prefix &body body)
   `(let (,@(mapcar
              (lambda (name)
                `(,name (intern (concatenate 'string
