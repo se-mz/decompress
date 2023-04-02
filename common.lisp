@@ -20,6 +20,7 @@
                 #:clamp
                 #:define-constant
                 #:ensure-list
+                #:iota
                 #:read-stream-content-into-byte-vector
                 #:remove-from-plistf
                 #:required-argument
@@ -157,6 +158,17 @@ input is a stream, it is this condition which is signalled, not `end-of-file'.")
   (define-le-accessor ub16ref/le 2)
   (define-le-accessor ub32ref/le 4)
   (define-le-accessor ub64ref/le 8))
+
+(defun positions (elt sequence)
+  (loop :for i :from 0 :below (length sequence)
+        :when (eql elt (elt sequence i))
+          :collect i))
+
+(defun reverse-ub32-byte-order (ub32)
+  (logior (ash (ldb (byte 8 0) ub32) 24)
+          (ash (ldb (byte 8 8) ub32) 16)
+          (ash (ldb (byte 8 16) ub32) 8)
+          (ash (ldb (byte 8 24) ub32) 0)))
 
 
 ;;;; Internal interface

@@ -12,18 +12,19 @@
 ;;; kind of benchmark since ABCL is wonky, but I had no 32-bit impls at hand.
 (cl:in-package #:semz.decompress)
 
-(declaim (type (simple-array (unsigned-byte 32) (256)) +crc-32-table+))
-(define-constant +crc-32-table+
-    (let* ((result (make-array 256 :element-type '(unsigned-byte 32)))
-           (magic #xEDB88320))
-      (dotimes (i 256 result)
-        (let ((next i))
-          (dotimes (j 8)
-            (setf next (if (logbitp 0 next)
-                           (logxor (ash next -1) magic)
-                           (ash next -1))))
-          (setf (aref result i) next))))
-  :test 'equalp)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (declaim (type (simple-array (unsigned-byte 32) (256)) +crc-32-table+))
+  (define-constant +crc-32-table+
+      (let* ((result (make-array 256 :element-type '(unsigned-byte 32)))
+             (magic #xEDB88320))
+        (dotimes (i 256 result)
+          (let ((next i))
+            (dotimes (j 8)
+              (setf next (if (logbitp 0 next)
+                             (logxor (ash next -1) magic)
+                             (ash next -1))))
+            (setf (aref result i) next))))
+    :test 'equalp))
 
 (defmacro define-basic-update-crc (function-name base-table-constant)
   `(defun ,function-name (data start end state)
@@ -66,7 +67,7 @@
                 (type (unsigned-byte 32) state)
                 (optimize speed))
        (let ((table ,table))
-         (declare (type (simple-array (unsigned-byte 32) (,table-count 256))))
+         (declare (type (simple-array (unsigned-byte 32) (,table-count 256)) table))
          (loop :while (>= (- end start) ,(* 4 var-count)) :do
            (let (,@(loop :for v :in vars
                          :for off :from 0 :by 4
@@ -85,19 +86,21 @@
        ;; Deal with remaining bytes
        (,remainder-function data start end state))))
 
-(define-basic-update-crc basic-update-crc-32 +crc-32-table+)
-(define-fast-update-crc fast-update-crc-32 basic-update-crc-32 +crc-32-table+)
+(defmacro define-update-crc (function-name base-table-constant)
+  (with-gensyms (basic-update fast-update)
+    `(progn
+       (define-basic-update-crc ,basic-update ,base-table-constant)
+       (define-fast-update-crc ,fast-update ,basic-update ,base-table-constant)
+       (defun ,function-name (data start end state)
+         (#+sbcl ,fast-update
+          #-sbcl ,basic-update
+          data start end state)))))
+
+(define-update-crc update-crc-32 +crc-32-table+)
 
 (defun start-crc-32 ()
   #xFFFFFFFF)
-
-(defun update-crc-32 (data start end state)
-  (#+sbcl fast-update-crc-32
-   #-sbcl basic-update-crc-32
-   data start end state))
-
 (defun finish-crc-32 (state)
   (logxor #xFFFFFFFF state))
-
 (defun crc-32 (data start end)
   (finish-crc-32 (update-crc-32 data start end (start-crc-32))))

@@ -552,6 +552,13 @@ data than anything we come up with.
 
 - ~operating-system~: Integer. See gzip spec.
 
+*** Bzip2
+:PROPERTIES:
+:CUSTOM_ID: header-bzip2
+:END:
+
+- ~block-size~: Integer. The BWT block size in bytes.
+
 
 
 ** Format-specific options
