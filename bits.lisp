@@ -111,3 +111,5 @@ guaranteed by consuming at least ~d bits without a call to `~(~a~)ensure-bits'."
 ;;; must be at least 15. We rely on the fact that we can return to byte I/O
 ;;; after 32 bits and use the bit reader on up to 32 bits at a time.
 (define-bit-reader lsb-bit-reader lbr- 15 32 :le)
+
+(define-bit-reader msb-bit-reader mbr- 20 48 :be)
