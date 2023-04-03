@@ -57,6 +57,65 @@
      ;; reuse as it's the only thing we'd repeatedly allocate otherwise.
      (codelen-tree :accessor dhi-codelen-tree :initform nil)))
 
+  ;; Dummy code length vector whose associated Huffman tree will always trigger
+  ;; an error since 30 and 31 are invalid distance codes.
+  (define-constant +illegal-deflate-dist-lengths+
+      (coerce #(0 0 0 0 0  0 0 0 0 0
+                0 0 0 0 0  0 0 0 0 0
+                0 0 0 0 0  0 0 0 0 0
+                1 1)
+              'dht-code-length-vector)
+    :test 'equalp)
+
+  ;; If all lengths are 0, except one which is 1, returns the latter's position.
+  ;; Otherwise returns nil.
+  (defun find-singular-one (lengths start end)
+    (declare (type dht-code-length-vector lengths)
+             (type array-length start end))
+    (loop :with index = nil
+          :for i :from start :below end
+          :do (unless (zerop (aref lengths i))
+                (if index
+                    (return nil)
+                    (if (= 1 (aref lengths i))
+                        (setf index i)
+                        (return nil))))
+          :finally (return index)))
+
+  ;; Like `lengths->dht', but allows the special cases of §3.2.7. Returns two
+  ;; values: The Huffman tree and a symbol that identifies the special case.
+  ;; Possible special cases: `nil', `:literals-only', `:single-code'.
+  ;;
+  ;; Does not hold onto `lengths', just like `lengths->dht'.
+  (defun lengths->dist-dht (lengths max-overread-bits
+                            &key (start 0) (end (length lengths))
+                              ((:reuse-dht dht) nil))
+    (declare (type dht-code-length-vector lengths)
+             (type array-length start end)
+             (optimize speed))
+    ;; One code of zero means that no distance codes are ever used. We actually
+    ;; detect this before reading distance codes; the illegal tree is insurance.
+    (if (and (= (+ start 1) end)
+             (zerop (aref lengths start)))
+        (values (lengths->dht +illegal-deflate-dist-lengths+ max-overread-bits :reuse-dht dht)
+                :literals-only)
+        ;; If all code lengths are 0 except for one length of 1, then only one
+        ;; distance code can appear, which must be encoded as a zero bit. We map
+        ;; the one bit to an illegal code (30/31, whichever wasn't used) and
+        ;; correct the error message later.
+        (let ((the-one-pos (find-singular-one lengths start end)))
+          (if the-one-pos
+              (let ((a (make-array 32 :element-type 'dht-code-length :initial-element 0))
+                    (the-one-code (- the-one-pos start)))
+                (declare (dynamic-extent a)) ; `lengths->dht' doesn't hold onto lengths
+                (setf (aref a the-one-code) 1
+                      (aref a (if (= the-one-code 31) 30 31)) 1)
+                (values (lengths->dht a max-overread-bits :reuse-dht dht)
+                        :single-code))
+              ;; Otherwise this is a normal code length vector.
+              (values (lengths->dht lengths max-overread-bits :start start :end end :reuse-dht dht)
+                      nil)))))
+
   ;; `lengths' contains the litlen codes and then the dist codes. Again, doesn't
   ;; hold onto `lengths'.
   (defun lengths->dhi (lengths litlen-count dist-count max-overread-bits
