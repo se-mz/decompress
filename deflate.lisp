@@ -3,7 +3,8 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defconstant +min-deflate-block-bitsize+
     (min
-     ;; Uncompressed block: Block header, no byte padding, zero length, checksum, no content.
+     ;; Uncompressed block: Block header, no byte padding, zero length,
+     ;; checksum, no content.
      (+ 3 0 16 16 0)
      ;; Fixed block: Block header, end of block marker.
      (+ 3 7)
@@ -51,7 +52,7 @@
   (defclass deflate-huffman-info ()
     ((litlen-tree :accessor dhi-litlen-tree :initform nil)
      (dist-tree :accessor dhi-dist-tree :initform nil)
-     ;; Special case for the distance tree. See `lengths->dist-dht'.
+     ;; Special case for the distance tree. See `lengths->dist-ht'.
      (special-mode :accessor dhi-special-mode :initform nil)
      ;; The auxillary tree used for dynamic blocks. We only keep it around for
      ;; reuse as it's the only thing we'd repeatedly allocate otherwise.
@@ -64,13 +65,13 @@
                 0 0 0 0 0  0 0 0 0 0
                 0 0 0 0 0  0 0 0 0 0
                 1 1)
-              'dht-code-length-vector)
+              'ht-codelen-vector)
     :test 'equalp)
 
   ;; If all lengths are 0, except one which is 1, returns the latter's position.
   ;; Otherwise returns nil.
   (defun find-singular-one (lengths start end)
-    (declare (type dht-code-length-vector lengths)
+    (declare (type ht-codelen-vector lengths)
              (type array-length start end))
     (loop :with index = nil
           :for i :from start :below end
@@ -82,22 +83,24 @@
                         (return nil))))
           :finally (return index)))
 
-  ;; Like `lengths->dht', but allows the special cases of §3.2.7. Returns two
+  ;; Like `lengths->ht', but allows the special cases of §3.2.7. Returns two
   ;; values: The Huffman tree and a symbol that identifies the special case.
   ;; Possible special cases: `nil', `:literals-only', `:single-code'.
   ;;
-  ;; Does not hold onto `lengths', just like `lengths->dht'.
-  (defun lengths->dist-dht (lengths max-overread-bits
-                            &key (start 0) (end (length lengths))
-                              ((:reuse-dht dht) nil))
-    (declare (type dht-code-length-vector lengths)
+  ;; Does not hold onto `lengths', just like `lengths->ht'.
+  (defun lengths->dist-ht (lengths max-overread-bits
+                           &key (start 0) (end (length lengths))
+                             ((:reuse-ht ht) nil))
+    (declare (type ht-codelen-vector lengths)
              (type array-length start end)
              (optimize speed))
     ;; One code of zero means that no distance codes are ever used. We actually
     ;; detect this before reading distance codes; the illegal tree is insurance.
     (if (and (= (+ start 1) end)
              (zerop (aref lengths start)))
-        (values (lengths->dht +illegal-deflate-dist-lengths+ max-overread-bits :reuse-dht dht)
+        (values (lengths->ht +illegal-deflate-dist-lengths+
+                             max-overread-bits :le
+                             :reuse-ht ht)
                 :literals-only)
         ;; If all code lengths are 0 except for one length of 1, then only one
         ;; distance code can appear, which must be encoded as a zero bit. We map
@@ -105,15 +108,17 @@
         ;; correct the error message later.
         (let ((the-one-pos (find-singular-one lengths start end)))
           (if the-one-pos
-              (let ((a (make-array 32 :element-type 'dht-code-length :initial-element 0))
+              (let ((a (make-array 32 :element-type 'ht-codelen :initial-element 0))
                     (the-one-code (- the-one-pos start)))
-                (declare (dynamic-extent a)) ; `lengths->dht' doesn't hold onto lengths
+                (declare (dynamic-extent a)) ; `lengths->ht' doesn't hold onto lengths
                 (setf (aref a the-one-code) 1
                       (aref a (if (= the-one-code 31) 30 31)) 1)
-                (values (lengths->dht a max-overread-bits :reuse-dht dht)
+                (values (lengths->ht a max-overread-bits :le
+                                     :reuse-ht ht)
                         :single-code))
               ;; Otherwise this is a normal code length vector.
-              (values (lengths->dht lengths max-overread-bits :start start :end end :reuse-dht dht)
+              (values (lengths->ht lengths max-overread-bits :le
+                                   :start start :end end :reuse-ht ht)
                       nil)))))
 
   ;; `lengths' contains the litlen codes and then the dist codes. Again, doesn't
@@ -121,20 +126,20 @@
   (defun lengths->dhi (lengths litlen-count dist-count max-overread-bits
                        &key ((:reuse-dhi dhi) nil))
     (setf dhi (or dhi (make-instance 'deflate-huffman-info))
-          (dhi-litlen-tree dhi) (lengths->dht lengths max-overread-bits
-                                              :start 0 :end litlen-count
-                                              :reuse-dht (dhi-litlen-tree dhi))
+          (dhi-litlen-tree dhi) (lengths->ht lengths max-overread-bits :le
+                                             :start 0 :end litlen-count
+                                             :reuse-ht (dhi-litlen-tree dhi))
           (values (dhi-dist-tree dhi) (dhi-special-mode dhi))
-          (lengths->dist-dht lengths max-overread-bits
-                             :start litlen-count :end (+ litlen-count dist-count)
-                             :reuse-dht (dhi-dist-tree dhi)))
+          (lengths->dist-ht lengths max-overread-bits
+                            :start litlen-count :end (+ litlen-count dist-count)
+                            :reuse-ht (dhi-dist-tree dhi)))
     dhi)
 
   ;; The attentive reader might notice that we later make use of the number of
   ;; trailing bits to optimize dynamic DHIs and wonder why don't we do this for
   ;; fixed DHIs here. Answer: The fixed DHI can only overread by at most 9-7=2
   ;; bits, so the minimum block bit size of 10 ensures that all blocks except
-  ;; the final one can use overreading DHTs. The slightly slower final block
+  ;; the final one can use overreading HTs. The slightly slower final block
   ;; doesn't really matter.
   (assert (>= +min-deflate-block-bitsize+ (- 9 7)))
 
@@ -146,7 +151,7 @@
                                    (repeat 8 280 287)
                                    ;; This just reads 5-bit BE numbers.
                                    (repeat 5 0 31))
-                           'dht-code-length-vector)))
+                           'ht-codelen-vector)))
       (defparameter *fixed-dhi-for-final-block*
         (lengths->dhi lengths 288 32 0))
       (defparameter *fixed-dhi-for-nonfinal-block*
@@ -157,11 +162,11 @@
          (dist-count       (+   1 (lbr-read-bits lbr 5)))
          (codelen-count    (+   4 (lbr-read-bits lbr 4)))
          (total-code-count (+ litlen-count dist-count))
-         (clen-lengths (make-array 19 :element-type 'dht-code-length :initial-element 0))
+         (clen-lengths (make-array 19 :element-type 'ht-codelen :initial-element 0))
          ;; Codes 16/17/18 may explicitly expand across the boundary between
          ;; literals and distance codes, so we put both codes into one array.
          ;; Giving it the max size makes stack allocation easier.
-         (codelens (make-array (+ 257 31 1 31) :element-type 'dht-code-length)))
+         (codelens (make-array (+ 257 31 1 31) :element-type 'ht-codelen)))
     ;; Only passed to `lengths->dh[ti]', which don't hold onto their arguments.
     (declare (dynamic-extent clen-lengths codelens))
 
@@ -169,10 +174,10 @@
       (setf (aref clen-lengths (svref #(16 17 18 0 8 7 9 6 10 5 11 4 12 3 13 2 14 1 15) i))
             (lbr-read-bits lbr 3)))
     (setf dhi (or dhi (make-instance 'deflate-huffman-info))
-          (dhi-codelen-tree dhi) (lengths->dht clen-lengths max-overread-bits
-                                               :reuse-dht (dhi-codelen-tree dhi)))
+          (dhi-codelen-tree dhi) (lengths->ht clen-lengths max-overread-bits :le
+                                              :reuse-ht (dhi-codelen-tree dhi)))
     (loop :with i = 0 :while (< i total-code-count) :do
-      (let ((raw-code (dht-read-code lbr (dhi-codelen-tree dhi))))
+      (let ((raw-code (ht-read-le-code lbr (dhi-codelen-tree dhi))))
         (if (<= 16 raw-code 18)
             (let ((expanded-size (ecase raw-code
                                    (16 (+ 3 (lbr-read-bits lbr 2)))
@@ -291,7 +296,7 @@
          (threshold    (deflate-buffer-fill-threshold buffer)))
     (declare (type buffer buffer)
              (type array-length pointer wsize threshold)
-             (type deflate-huffman-tree litlen-tree dist-tree)
+             (type huffman-tree litlen-tree dist-tree)
              (type lsb-bit-reader lbr))
     (flet ((decode-length (index)
              (declare (type (index-for +deflate-length-bases+) index)
@@ -303,7 +308,7 @@
              (declare (type (integer 0 31) dist-code)
                       (optimize speed))
              (when (> dist-code 29)
-               ;; See the remark before `lengths->dist-dht'.
+               ;; See the remark before `lengths->dist-ht'.
                (ecase special-mode
                  ((nil)
                   (die "Distance code out of bounds (0-29): ~d" dist-code))
@@ -335,7 +340,7 @@
                (ftype (function (array-length array-length array-length))
                       replicate-segment))
       (loop
-        (let ((code (dht-read-code lbr litlen-tree)))
+        (let ((code (ht-read-le-code lbr litlen-tree)))
           (cond
             ((<= 0 code 255)
              (setf (aref buffer pointer) code)
@@ -347,7 +352,7 @@
              (when (eq :literals-only special-mode)
                (die "Length code in literal-only block: ~d" code))
              (let ((length (decode-length (- code 257)))
-                   (distance (decode-distance (dht-read-code lbr dist-tree))))
+                   (distance (decode-distance (ht-read-le-code lbr dist-tree))))
                (declare (type (integer 0 #.+largest-deflate-expansion+) length)
                         (type (integer 0 #.+largest-deflate-distance+) distance))
                (unless (<= distance (min pointer wsize))
@@ -428,7 +433,7 @@
                                                                *fixed-dhi-for-nonfinal-block*)))
                     (:dynamic      (decode-huffman-data ds (ds-dhi ds)))))
              (finalp (and (ds-final-block-p ds)
-                         (eq :block-boundary (ds-block-type ds)))))
+                          (eq :block-boundary (ds-block-type ds)))))
         (setf (ds-fill-pointer ds) end)
         (when (or finalp (>= end (deflate-buffer-fill-threshold buffer)))
           (return (values buffer start end finalp)))))))

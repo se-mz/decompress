@@ -50,57 +50,57 @@
 (cl:in-package #:semz.decompress)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defconstant +huffman-max-code-length+ (max 15 20))
+  (defconstant +huffman-max-codelen+ (max 15 20))
   (defconstant +huffman-max-item+ (max 287 257))
-  (defconstant +huffman-shift+ (integer-length +huffman-max-code-length+)))
+  (defconstant +huffman-shift+ (integer-length +huffman-max-codelen+)))
 
-(deftype dht-code-length ()
-  `(integer 0 ,+huffman-max-code-length+))
+(deftype ht-codelen ()
+  `(integer 0 ,+huffman-max-codelen+))
 
-(deftype dht-code-length-vector ()
-  '(simple-array dht-code-length (*)))
+(deftype ht-codelen-vector ()
+  '(simple-array ht-codelen (*)))
 
-(deftype dht-item ()
+(deftype ht-item ()
   `(integer 0 ,+huffman-max-item+))
 
-(deftype dht-entry ()
+(deftype ht-entry ()
   `(unsigned-byte ,(+ +huffman-shift+ (integer-length +huffman-max-item+))))
 
-(declaim (inline dht-table dht-min-code-length dht-max-code-length dht-full-read-p))
-(defstruct (deflate-huffman-tree (:conc-name dht-))
-  (table (required-argument :table) :type (simple-array dht-entry (*)))
-  (min-code-length (required-argument :min-code-length)
-   :type (integer 1 #.+huffman-max-code-length+))
-  (max-code-length (required-argument :max-code-length)
-   :type (integer 1 #.+huffman-max-code-length+))
-  ;; If true, we can always safely read `max-code-length' bits at once to speed
+(declaim (inline ht-table ht-min-codelen ht-max-codelen ht-full-read-p))
+(defstruct (huffman-tree (:conc-name ht-))
+  (table (required-argument :table) :type (simple-array ht-entry (*)))
+  (min-codelen (required-argument :min-codelen)
+   :type (integer 1 #.+huffman-max-codelen+))
+  (max-codelen (required-argument :max-codelen)
+   :type (integer 1 #.+huffman-max-codelen+))
+  ;; If true, we can always safely read `max-codelen' bits at once to speed
   ;; up the decoding process, rather than having to go byte by byte.
   full-read-p)
 
 (defmacro define-huffman-reader-function
     (function-name bit-reader-type prefix endianness)
   (with-prefixed-names (ensure-bits dump-bits peek-bits) prefix
-    `(define-fast-function (,function-name dht-item)
-         ((br ,bit-reader-type) (dht deflate-huffman-tree))
+    `(define-fast-function (,function-name ht-item)
+         ((br ,bit-reader-type) (ht huffman-tree))
        (macrolet ((with-entry ((index len) &body body)
                     (with-gensyms (entry)
-                      `(let* ((,entry (aref (dht-table dht)
+                      `(let* ((,entry (aref (ht-table ht)
                                             ,(ecase ,endianness
                                                (:le index)
-                                               (:be `(ash ,index (- max-code-length ,len))))))
+                                               (:be `(ash ,index (- max-codelen ,len))))))
                               (length (ldb (byte ,+huffman-shift+ 0) ,entry))
                               (item (ash ,entry ,(- +huffman-shift+))))
                          (declare (type (unsigned-byte ,+huffman-shift+) length)
-                                  (type dht-entry item))
+                                  (type ht-entry item))
                          ,@body))))
-         (let ((max-code-length (dht-max-code-length dht)))
-           (if (dht-full-read-p dht)
+         (let ((max-codelen (ht-max-codelen ht)))
+           (if (ht-full-read-p ht)
                (progn
-                 (,ensure-bits br max-code-length)
-                 (with-entry ((,peek-bits br max-code-length) max-code-length)
+                 (,ensure-bits br max-codelen)
+                 (with-entry ((,peek-bits br max-codelen) max-codelen)
                    (,dump-bits br length)
                    item))
-               (loop :for ensured-len :from (dht-min-code-length dht) :to max-code-length
+               (loop :for ensured-len :from (ht-min-codelen ht) :to max-codelen
                      :do (,ensure-bits br ensured-len)
                          (with-entry ((,peek-bits br ensured-len) ensured-len)
                            (when (<= length ensured-len)
@@ -108,8 +108,8 @@
                              (return item)))
                      :finally (error "Corrupt Huffman tree."))))))))
 
-(define-huffman-reader-function dht-read-code lsb-bit-reader lbr- :le)
-(define-huffman-reader-function bzip-read-code msb-bit-reader mbr- :be)
+(define-huffman-reader-function ht-read-le-code lsb-bit-reader lbr- :le)
+(define-huffman-reader-function ht-read-be-code msb-bit-reader mbr- :be)
 
 (define-fast-function (reverse-small-integer (unsigned-byte 16))
     ((x (unsigned-byte 16)) (n (integer 0 16)))
@@ -138,12 +138,11 @@
 ;;; separately, so they get their own conversion function. Neither conversion
 ;;; function holds onto `lengths' in order to allow `dynamic-extent'
 ;;; declarations in `deflate.lisp'.
-(defun lengths->dht (lengths max-overread-bits
-                     &key (start 0) (end (length lengths))
-                     ;; If non-nil, write data into this existing DHT instead.
-                       ((:reuse-dht dht) nil)
-                       (endianness :le))
-  (declare (type dht-code-length-vector lengths)
+(defun lengths->ht (lengths max-overread-bits endianness
+                    &key (start 0) (end (length lengths))
+                    ;; If non-nil, write data into this existing HT instead.
+                      ((:reuse-ht ht) nil))
+  (declare (type ht-codelen-vector lengths)
            (type integer max-overread-bits)
            (type array-length start end)
            #+sbcl (sb-ext:muffle-conditions sb-ext:compiler-note)
@@ -151,20 +150,20 @@
   (assert (<= 1 (- end start) (+ 1 +huffman-max-item+)))
   (assert (or (eq endianness :le)
               (eq endianness :be)))
-  (let* ((max-code-length
+  (let* ((max-codelen
            (reduce #'max lengths :start start :end end :initial-value 1))
-         (min-code-length
-           (reduce #'min lengths :start start :end end :initial-value +huffman-max-code-length+
+         (min-codelen
+           (reduce #'min lengths :start start :end end :initial-value +huffman-max-codelen+
                                  :key (lambda (x)
-                                        (declare (type dht-code-length x))
+                                        (declare (type ht-codelen x))
                                         (if (zerop x)
-                                            +huffman-max-code-length+
+                                            +huffman-max-codelen+
                                             x))))
-         (2^max (expt 2 max-code-length))
+         (2^max (expt 2 max-codelen))
          ;; True about 2/3 of the time in practice when `max-overread-bits' = 0.
-         (full-read-p (>= max-overread-bits (- max-code-length min-code-length))))
-    (declare (type dht-code-length max-code-length min-code-length)
-             (type (integer 0 #.(expt 2 +huffman-max-code-length+)) 2^max))
+         (full-read-p (>= max-overread-bits (- max-codelen min-codelen))))
+    (declare (type ht-codelen max-codelen min-codelen)
+             (type (integer 0 #.(expt 2 +huffman-max-codelen+)) 2^max))
     ;; If codes are at most `n' bits long, then the fact that Huffman coding is
     ;; prefixless implies that each k-bit code will block the use of 2^(n-k)
     ;; n-bit codes. A length sequence determines a Huffman tree if and only if
@@ -173,36 +172,35 @@
     ;; length (and would be ambiguous even when extended).
     (let ((unusable-codes (reduce #'+ lengths :start start :end end
                                               :key (lambda (len)
-                                                     (declare (type dht-code-length len))
+                                                     (declare (type ht-codelen len))
                                                      (if (zerop len)
                                                          0
-                                                         (expt 2 (- max-code-length len)))))))
+                                                         (expt 2 (- max-codelen len)))))))
       ;; Very liberal bound, but trivial to prove correct.
       (declare (type (integer 0 #.(* (+ 1 +huffman-max-item+)
-                                     (expt 2 (- +huffman-max-code-length+ 1))))
+                                     (expt 2 (- +huffman-max-codelen+ 1))))
                      unusable-codes))
       (cond
         ((< unusable-codes 2^max) (die "Underfull Huffman tree."))
         ((> unusable-codes 2^max) (die "Overfull Huffman tree."))))
-    (setf dht (or dht (make-deflate-huffman-tree
-                       :max-code-length max-code-length
-                       :min-code-length min-code-length
-                       :table (make-array 2^max :element-type 'dht-entry)
-                       :full-read-p full-read-p)))
-    (check-type dht deflate-huffman-tree)
+    (setf ht (or ht (make-huffman-tree :max-codelen max-codelen
+                                       :min-codelen min-codelen
+                                       :table (make-array 2^max :element-type 'ht-entry)
+                                       :full-read-p full-read-p)))
+    (check-type ht huffman-tree)
     ;; Especially smaller Deflate buffers don't use the maximum length of 15
     ;; bits, so allocating the table as needed makes decompression of many small
     ;; buffers noticeably faster. For large buffers, it amortizes.
-    (let ((table (if (> 2^max (length (dht-table dht)))
-                     (make-array 2^max :element-type 'dht-entry)
-                     (dht-table dht)))
+    (let ((table (if (> 2^max (length (ht-table ht)))
+                     (make-array 2^max :element-type 'ht-entry)
+                     (ht-table ht)))
           ;; Next Huffman code to be assigned, represented as MSB of length
           ;; `len'. This can hit 2^n due to the final `incf'.
           (next-code 0))
-      (declare (type (simple-array dht-entry (*)) table)
-               (type (integer 0 #.(expt 2 +huffman-max-code-length+)) next-code)
+      (declare (type (simple-array ht-entry (*)) table)
+               (type (integer 0 #.(expt 2 +huffman-max-codelen+)) next-code)
                (optimize speed))
-      (loop :for len :from min-code-length :to max-code-length :do
+      (loop :for len :from min-codelen :to max-codelen :do
         ;; Extend code to `len' bits. For the first code this is a no-op.
         (setf next-code (ash next-code 1))
         (loop :for src-index :from start :below end
@@ -216,13 +214,13 @@
                       (loop :for i :from (reverse-small-integer next-code len)
                               :below 2^max :by (expt 2 len)
                             :do (setf (aref table i) entry))
-                      (let ((unused-bits (- max-code-length len)))
+                      (let ((unused-bits (- max-codelen len)))
                         (loop :for i :from (ash next-code unused-bits)
                                 :below (ash (+ 1 next-code) unused-bits)
                               :do (setf (aref table i) entry)))))
                 (incf next-code)))
-      (setf (dht-max-code-length dht) max-code-length
-            (dht-min-code-length dht) min-code-length
-            (dht-table dht) table
-            (dht-full-read-p dht) full-read-p)
-      dht)))
+      (setf (ht-max-codelen ht) max-codelen
+            (ht-min-codelen ht) min-codelen
+            (ht-table ht) table
+            (ht-full-read-p ht) full-read-p)
+      ht)))

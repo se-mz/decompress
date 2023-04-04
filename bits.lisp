@@ -90,8 +90,9 @@
          (define-fast-function ,flush-byte ((br ,type-name))
            "Discards buffered bits in `br' before the next byte boundary. This function
 does NOT guarantee that bytewise I/O will be usable afterwards."
-           ;; The buffer ends on a byte boundary, so skipping to the next byte boundary
-           ;; just means discarding bits until the remaining bits are a multiple of 8.
+           ;; The buffer ends on a byte boundary, so skipping to the next byte
+           ;; boundary just means discarding bits until the remaining bits are a
+           ;; multiple of 8.
            (let ((dropped (ldb (byte 3 0) (,bits-left br))))
              (declare (type (integer 0 7) dropped))
              (decf (,bits-left br) dropped)
