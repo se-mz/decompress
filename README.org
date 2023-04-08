@@ -1,4 +1,4 @@
-#+title: A defensive and fast Deflate decompressor in pure Common Lisp
+#+title: A defensive and fast decompression library in pure Common Lisp
 #+options: ^:{}
 
 * Overview
@@ -6,12 +6,12 @@
 :CUSTOM_ID: overview
 :END:
 
-The title speaks for itself. I originally wrote this library as a fun exercise
-in implementing something purely from the specification, but it ended up good
-enough to publish. Patching existing libraries would have been difficult due to
-different API promises.
+The title speaks for itself. I originally wrote the Deflate part of this library
+as a fun exercise in implementing something purely from the specification, but
+it ended up good enough to publish. Patching existing libraries would have been
+difficult due to different API promises.
 
-More formats may be added later; obvious candidates are bzip2, xz and zstd. A
+More formats may be added later; obvious candidates are xz and zstd. A
 compressor counterpart is highly unlikely. A download can be found [[https://semelz.de/downloads/][here]]; there
 is also a [[https://github.com/se-mz/decompress][Github mirror]] if you're into that.
 
@@ -22,7 +22,7 @@ is also a [[https://github.com/se-mz/decompress][Github mirror]] if you're into 
 :CUSTOM_ID: features
 :END:
 
-- *Supported formats*: Deflate, zlib, gzip.
+- *Supported formats*: Deflate, zlib, gzip, bzip2.
 
 - *Safety*: All [[#edge-cases][edge cases]] are properly detected and explicitly
   handled; malformed data is rejected early. The interface is designed to be
@@ -38,10 +38,12 @@ is also a [[https://github.com/se-mz/decompress][Github mirror]] if you're into 
   performance; see the ~allow-overreads-p~ option to [[#fn-decompress][decompress]]
   and [[#fn-make-decompression-stream][make-decompression-stream]].
 
-- *Performance*: To my knowledge, this is the fastest Deflate decoder in pure
-  Common Lisp. Under SBCL, file-to-file decompression usually hits 1.7x-2.2x the
-  runtime of GNU gzip and 2.5x-3.4x the runtime of zlib. It is some 1.6x-2.4x
-  faster than [[https://github.com/sharplispers/chipz][chipz]]. See [[#performance][the performance section]] for more details.
+- *Performance*: To my knowledge, this is the second fastest Deflate decoder and
+  the fastest bzip2 decoder in pure Common Lisp. Under SBCL, file-to-file
+  decompression usually hits 1.7x-2.2x the runtime of GNU gzip, 2.5x-3.4x the
+  runtime of zlib, and 1.3x-1.5x the runtime of bzip2. It is some 1.6x-2.4x
+  faster than [[https://github.com/sharplispers/chipz][chipz]] for Deflate and some 1.3x-1.5x faster for bzip2.
+  See [[#performance][the performance section]] for more details.
 
 
 
@@ -65,10 +67,10 @@ The other libraries under consideration are [[https://github.com/sharplispers/ch
 popular library, and [[https://pmsf.eu/resources/lisp/Deflate.html][an implementation by Pierre Mai]] that is compact and notably
 used by Quicklisp.
 
-|                          | semz.decompress-1.0.0            | chipz-20220220                                        | deflate-1.0.1 (Mai)                       |
+|                          | semz.decompress-1.1.0            | chipz-20230408                                        | deflate-1.0.1 (Mai)                       |
 |--------------------------+----------------------------------+-------------------------------------------------------+-------------------------------------------|
 | /                        | <                                |                                                       |                                           |
-| supported formats        | deflate, zlib, gzip              | deflate, zlib, gzip, bzip2                            | deflate, zlib, gzip                       |
+| supported formats        | deflate, zlib, gzip, bzip2       | deflate, zlib, gzip, bzip2                            | deflate, zlib, gzip                       |
 | dependencies             | alexandria, trivial‑gray‑streams | -                                                     | -                                         |
 | license                  | MIT                              | BSD‑3                                                 | MIT + BSD‑3's no-advertising clause       |
 |--------------------------+----------------------------------+-------------------------------------------------------+-------------------------------------------|
@@ -87,6 +89,11 @@ used by Quicklisp.
 ** Edge case handling
 :PROPERTIES:
 :CUSTOM_ID: edge-cases
+:END:
+
+*** Deflate
+:PROPERTIES:
+:CUSTOM_ID: edge-cases-deflate
 :END:
 
 The Deflate spec has a few rough edges which we deal with as follows.
@@ -168,6 +175,39 @@ necessarily reliably so).
 
 ¹ In combination with the behavior for out-of-bounds references, this means that
 data with preset dictionaries will silently decompress incorrectly.
+
+
+
+*** Bzip2
+:PROPERTIES:
+:CUSTOM_ID: edge-cases-bzip2
+:END:
+
+Bzip2 has no spec, so we mostly try to match the reference implementation. There
+is one notable exception: The reference implementation accepts underfull Huffman
+trees and only complains once unassigned codes are used; we reject such trees
+right off the bat since it simplifies the code.
+
+I am not aware of any compressor that outputs such trees; Joe Tsai claims they
+exist, but provides no names. There isn't a good reason why a compressor would
+output such trees since bzip2 cannot have alphabets of size one, and whenever
+you have a branch with only one child, it's more efficient to just give the
+unique child a code that's one bit shorter. The resulting reshuffling of codes
+has negligible overhead (none if you only assign them at the end). I suppose
+this case is something to think about once someone runs into it while using this
+library.
+
+Chipz is essentially a translation of the reference implementation, but doesn't
+bother to support the block randomization mechanism that has been deprecated for
+a good two decades. We do because our approach makes it very easy to add. You
+can find a test file [[https://semelz.de/files/zero-randomized.bz2][here]]; it consists of 100MB of highest quality zero octets.
+The [[https://gitlab.com/bzip2/bzip2-testfiles/-/blob/master/lbzip2/rand.bz2][testfile in lbzip2]] doesn't actually test block randomization since it is too
+short for any effects to show up.
+
+Other than this, the format does not allow for many edge cases to begin with
+since most of its transformations simply cannot have invalid inputs. Just like
+the reference implementation, we do not care about wasteful encodings such as
+e.g. defining six Huffman trees despite only using three.
 
 
 
