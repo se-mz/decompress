@@ -49,20 +49,25 @@
                                 (values nil    0 0)
                                 (values buffer 0 end)))))))
 
-(defun refill-or-die (source)
-  (multiple-value-bind (buffer start end)
-      (funcall (bs-refill-function source))
-    (if (null buffer)
-        (%eof)
-        (setf (bs-buffer source) buffer
-              (bs-start  source) start
-              (bs-end    source) end))))
+(defun try-refill (bs)
+  (declare (type buffer-stream bs))
+  (loop
+    :until (< (bs-start bs) (bs-end bs)) :do
+      (multiple-value-bind (buffer start end)
+          (funcall (bs-refill-function bs))
+        (if (null buffer)
+            (return nil)
+            (setf (bs-buffer bs) buffer
+                  (bs-start  bs) start
+                  (bs-end    bs) end)))
+    :finally (return t)))
 
 (define-fast-function (bs-read-byte octet) ((source byte-source))
   (if (buffer-stream-p source)
       (locally (declare (type buffer-stream source)) ; help out dumber impls
         (when (= (bs-start source) (bs-end source))
-          (refill-or-die source))
+          (unless (try-refill source)
+            (%eof)))
         (prog1 (aref (bs-buffer source) (bs-start source))
           (incf (bs-start source))))
       (let ((byte (read-byte source nil nil)))
@@ -88,15 +93,10 @@
          (incf (bs-start source) amount))
        (if (= start end)
            (return end)
-           (multiple-value-bind (new-buffer new-start new-end)
-               (funcall (bs-refill-function source))
-             (if (null new-buffer)
-                 (if eof-error-p
-                     (%eof)
-                     (return start))
-                 (setf (bs-buffer source) new-buffer
-                       (bs-start  source) new-start
-                       (bs-end    source) new-end))))))))
+           (unless (try-refill source)
+             (if eof-error-p
+                 (%eof)
+                 (return start))))))))
 
 (defun bs-read-le (n source)
   (let ((result 0))
