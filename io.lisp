@@ -68,6 +68,11 @@
 (define-fast-function (bs-read-byte octet) ((source byte-source))
   (if (buffer-stream-p source)
       (locally (declare (type buffer-stream source)) ; help out dumber impls
+        ;; ABCL's type/bound check overhead is outright obscene. It makes the
+        ;; buffered version significantly slower than the `read-byte' variant!
+        ;; Since the JVM has built-in bounds checking and we ensure that buffer
+        ;; stream bounds are valid at all times, safety 0 is acceptable here.
+        #+abcl (declare (optimize (safety 0)))
         (when (= (bs-start source) (bs-end source))
           (unless (try-refill source)
             (%eof)))
