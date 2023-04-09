@@ -24,6 +24,7 @@
   '(or stream buffer-stream))
 
 (defun array->buffer-stream (array start end &key (buffer-size *default-buffer-size*))
+  (assert (<= 0 start end (length array)))
   (if (typep array 'buffer)
       (make-buffer-stream :buffer array :start start :end end)
       (let ((buffer (make-array (min buffer-size (- end start)) :element-type 'octet)))
@@ -57,9 +58,11 @@
           (funcall (bs-refill-function bs))
         (if (null buffer)
             (return nil)
-            (setf (bs-buffer bs) buffer
-                  (bs-start  bs) start
-                  (bs-end    bs) end)))
+            (progn
+              (assert (<= 0 start end (length buffer)))
+              (setf (bs-buffer bs) buffer
+                    (bs-start  bs) start
+                    (bs-end    bs) end))))
     :finally (return t)))
 
 (define-fast-function (bs-read-byte octet) ((source byte-source))
