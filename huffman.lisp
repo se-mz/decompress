@@ -16,9 +16,10 @@
 ;;; have enough bits yet (since Huffman codes are prefixless, `l' is necessarily
 ;;; larger than our bit count) and can then retry after reading another byte.
 ;;;
-;;; Since bit reading is naturally done in LSB-first order, we convert the
-;;; table's indices from their natural MSB-first form to LSB-first. This
-;;; tradeoff seems worth it in practice.
+;;; For MSB-first readers, we simply left shift the code to the correct length.
+;;; For LSB-first readers, since bit reading is naturally done in LSB-first
+;;; order, we simply convert the table's indices from their natural MSB-first
+;;; form to LSB-first. This tradeoff seems worth it in practice.
 ;;;
 ;;; Example: The Huffman code with n = 2 on the left would result in the table
 ;;; on the right.
