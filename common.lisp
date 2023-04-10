@@ -19,6 +19,8 @@
                 #:array-length
                 #:clamp
                 #:define-constant
+                #:ensure-list
+                #:iota
                 #:read-stream-content-into-byte-vector
                 #:remove-from-plistf
                 #:required-argument
@@ -87,6 +89,44 @@ input is a stream, it is this condition which is signalled, not `end-of-file'.")
     `(macrolet ((,define () (let* ,bindings ,@code)))
        (,define))))
 
+(defmacro with-prefixed-names ((&rest names) prefix &body body)
+  `(let (,@(mapcar
+             (lambda (name)
+               `(,name (intern (concatenate 'string
+                                            ;; `prefix' is evaluated
+                                            (string ,prefix)
+                                            ;; `name' isn't
+                                            ,(string name)))))
+             names))
+     ,@body))
+
+;;; We rely heavily on typed inline functions rather than big macrolets in the
+;;; interest of readability; this macro removes some of the resulting clutter.
+(defmacro define-fast-function (name-with-optional-return-type (&rest args) &body body)
+  (destructuring-bind (name &optional (return-type '*))
+      (ensure-list name-with-optional-return-type)
+    (setf args (mapcar (lambda (x)
+                         (if (listp x)
+                             (progn
+                               (assert (= 2 (length x)))
+                               x)
+                             (list x 'T)))
+                       args))
+    `(progn
+       (declaim (ftype (function (,@(mapcar #'second args))
+                                 ,@(if (eq return-type '*)
+                                       '()
+                                       `(,return-type)))
+                       ,name)
+                (inline ,name))
+       (defun ,name (,@(mapcar #'first args))
+         (declare ,@(mapcar (lambda (a)
+                              (destructuring-bind (name type) a
+                                `(type ,type ,name)))
+                            args)
+                  (optimize speed))
+         ,@body))))
+
 (defmacro normalize-bounds (array start end)
   (check-type array symbol)
   (check-type start symbol)
@@ -118,6 +158,17 @@ input is a stream, it is this condition which is signalled, not `end-of-file'.")
   (define-le-accessor ub16ref/le 2)
   (define-le-accessor ub32ref/le 4)
   (define-le-accessor ub64ref/le 8))
+
+(defun positions (elt sequence)
+  (loop :for i :from 0 :below (length sequence)
+        :when (eql elt (elt sequence i))
+          :collect i))
+
+(defun reverse-ub32-byte-order (ub32)
+  (logior (ash (ldb (byte 8 0) ub32) 24)
+          (ash (ldb (byte 8 8) ub32) 16)
+          (ash (ldb (byte 8 16) ub32) 8)
+          (ash (ldb (byte 8 24) ub32) 0)))
 
 
 ;;;; Internal interface

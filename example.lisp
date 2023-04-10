@@ -6,7 +6,7 @@
 
 ;; These objects can be passed to specify the compression format.
 (semz.decompress:list-supported-formats)
-;; => (:gzip :zlib :deflate)
+;; => (:bzip2 :gzip :zlib :deflate)
 
 ;; `decompress' accepts :start and :end arguments for vector arguments, just
 ;; like the sequence functions. Trailing data is ignored. This example reads

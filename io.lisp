@@ -24,6 +24,7 @@
   '(or stream buffer-stream))
 
 (defun array->buffer-stream (array start end &key (buffer-size *default-buffer-size*))
+  (assert (<= 0 start end (length array)))
   (if (typep array 'buffer)
       (make-buffer-stream :buffer array :start start :end end)
       (let ((buffer (make-array (min buffer-size (- end start)) :element-type 'octet)))
@@ -49,24 +50,32 @@
                                 (values nil    0 0)
                                 (values buffer 0 end)))))))
 
-(defun refill-or-die (source)
-  (multiple-value-bind (buffer start end)
-      (funcall (bs-refill-function source))
-    (if (null buffer)
-        (%eof)
-        (setf (bs-buffer source) buffer
-              (bs-start  source) start
-              (bs-end    source) end))))
+(defun try-refill (bs)
+  (declare (type buffer-stream bs))
+  (loop
+    :until (< (bs-start bs) (bs-end bs)) :do
+      (multiple-value-bind (buffer start end)
+          (funcall (bs-refill-function bs))
+        (if (null buffer)
+            (return nil)
+            (progn
+              (assert (<= 0 start end (length buffer)))
+              (setf (bs-buffer bs) buffer
+                    (bs-start  bs) start
+                    (bs-end    bs) end))))
+    :finally (return t)))
 
-(declaim (ftype (function (byte-source) octet) bs-read-byte)
-         (inline bs-read-byte))
-(defun bs-read-byte (source)
-  (declare (type byte-source source)
-           (optimize speed))
+(define-fast-function (bs-read-byte octet) ((source byte-source))
   (if (buffer-stream-p source)
       (locally (declare (type buffer-stream source)) ; help out dumber impls
+        ;; ABCL's type/bound check overhead is outright obscene. It makes the
+        ;; buffered version significantly slower than the `read-byte' variant!
+        ;; Since the JVM has built-in bounds checking and we ensure that buffer
+        ;; stream bounds are valid at all times, safety 0 is acceptable here.
+        #+abcl (declare (optimize (safety 0)))
         (when (= (bs-start source) (bs-end source))
-          (refill-or-die source))
+          (unless (try-refill source)
+            (%eof)))
         (prog1 (aref (bs-buffer source) (bs-start source))
           (incf (bs-start source))))
       (let ((byte (read-byte source nil nil)))
@@ -92,15 +101,10 @@
          (incf (bs-start source) amount))
        (if (= start end)
            (return end)
-           (multiple-value-bind (new-buffer new-start new-end)
-               (funcall (bs-refill-function source))
-             (if (null new-buffer)
-                 (if eof-error-p
-                     (%eof)
-                     (return start))
-                 (setf (bs-buffer source) new-buffer
-                       (bs-start  source) new-start
-                       (bs-end    source) new-end))))))))
+           (unless (try-refill source)
+             (if eof-error-p
+                 (%eof)
+                 (return start))))))))
 
 (defun bs-read-le (n source)
   (let ((result 0))

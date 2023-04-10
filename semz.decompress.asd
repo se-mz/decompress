@@ -7,6 +7,7 @@
   :homepage "https://semelz.de/software/decompress.html"
   :depends-on ("alexandria" "trivial-gray-streams")
   :components ((:file "common")
+               (:file "tables" :depends-on ("common"))
                (:file "io" :depends-on ("common"))
                (:file "bits" :depends-on ("common" "io"))
                (:file "interface" :depends-on ("common" "io"))
@@ -18,4 +19,6 @@
                (:file "zlib" :depends-on ("common" "io" "bits" "deflate" "adler32"))
 
                (:file "crc32" :depends-on ("common"))
-               (:file "gzip" :depends-on ("common" "io" "bits" "deflate" "crc32"))))
+               (:file "gzip" :depends-on ("common" "io" "bits" "deflate" "crc32"))
+
+               (:file "bzip2" :depends-on ("common" "bits" "crc32" "tables"))))
