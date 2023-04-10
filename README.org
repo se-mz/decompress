@@ -64,8 +64,8 @@ See the [[#reference][reference]] for more details.
 :END:
 
 The other libraries under consideration are [[https://github.com/sharplispers/chipz][chipz]], which is probably the most
-popular library, and [[https://pmsf.eu/resources/lisp/Deflate.html][an implementation by Pierre Mai]] that is compact and notably
-used by Quicklisp.
+popular library; [[https://pmsf.eu/resources/lisp/Deflate.html][an implementation by Pierre Mai]] that is compact and notably
+used by Quicklisp; and [[https://github.com/3b/3bz][3bz]], which is notably used by pngload.
 
 |                           | semz.decompress-1.1.0            | chipz-20230408                                        | deflate-1.0.1 (Mai)                       | 3bz-20230408                                               |
 |---------------------------+----------------------------------+-------------------------------------------------------+-------------------------------------------+------------------------------------------------------------|
