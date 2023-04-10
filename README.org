@@ -193,7 +193,7 @@ is one notable exception: The reference implementation accepts underfull Huffman
 trees and only complains once unassigned codes are used; we reject such trees
 right off the bat since it simplifies the code.
 
-I am not aware of any compressor that outputs such trees; Joe Tsai claims they
+I am not aware of any compressor that outputs such trees; Joe Tsai [[https://github.com/dsnet/compress/blob/master/doc/bzip2-format.pdf][claims]] they
 exist, but provides no names. There isn't a good reason why a compressor would
 output such trees since bzip2 cannot have alphabets of size one, and whenever
 you have a branch with only one child, it's more efficient to just give the
