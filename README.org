@@ -71,8 +71,8 @@ used by Quicklisp; and [[https://github.com/3b/3bz][3bz]], which is notably used
 |---------------------------+----------------------------------+-------------------------------------------------------+-------------------------------------------+------------------------------------------------------------|
 | /                         | <                                |                                                       |                                           |                                                            |
 | supported formats         | deflate, zlib, gzip, bzip2       | deflate, zlib, gzip, bzip2                            | deflate, zlib, gzip                       | deflate, zlib, gzip                                        |
-| dependencies              | alexandria, trivial‑gray‑streams | -                                                     | -                                         | alexandria, trivial‑features, nibbles, babel, cffi*, mmap* |
-| license                   | MIT                              | BSD‑3                                                 | MIT + BSD‑3's no-advertising clause       | ?                                                          |
+| dependencies              | alexandria, trivial‑gray‑streams | -                                                     | -                                         | alexandria, trivial‑features, nibbles, babel, cffi¹, mmap¹ |
+| license                   | MIT                              | BSD‑3                                                 | MIT + BSD‑3's no-advertising clause       | MIT                                                        |
 |---------------------------+----------------------------------+-------------------------------------------------------+-------------------------------------------+------------------------------------------------------------|
 | input sources             | vector, stream                   | simple specialized vector, list, stream, pathname     | stream                                    | (s. s.) vector, stream, foreign memory                     |
 | output destinations       | new vector                       | new vector, provided (s. s.) vector, stream, pathname | stream                                    | (s. s.) vector                                             |
@@ -84,6 +84,8 @@ used by Quicklisp; and [[https://github.com/3b/3bz][3bz]], which is notably used
 | trailing data             | ignored, not read by default     | ignored, may be read                                  | ignored, never read                       | ignored; not read with stream input                        |
 | preset zlib dictionaries  | supported                        | unsupported                                           | unsupported                               | unsupported                                                |
 | bzip2 block randomization | supported                        | unsupported                                           | n/a                                       | n/a                                                        |
+
+¹ Optional depending on implementation.
 
 
 
