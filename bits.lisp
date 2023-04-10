@@ -75,7 +75,8 @@
                           (type (unsigned-byte ,max-read) result))
                  (loop :while (< result-length n) :do
                    (let ((amount (min (- n result-length) ,max-ensure)))
-                     (declare (type (integer 1 ,max-ensure) amount))
+                     (declare (type (integer 1 ,max-ensure) amount)
+                              #+sbcl (sb-ext:muffle-conditions sb-ext:compiler-note))
                      (,ensure-bits br amount)
                      (setf result
                            ,(ecase endianness
