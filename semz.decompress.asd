@@ -1,6 +1,6 @@
 (asdf:defsystem "semz.decompress"
   :description "A defensive and fast Deflate decompressor in pure CL."
-  :version "1.0.0"
+  :version "1.1.0"
   :author "Sebastian Melzer <semz@semelz.de>"
   :maintainer "Sebastian Melzer <semz@semelz.de>"
   :licence "MIT"
