@@ -169,7 +169,7 @@ deviation since they may cause behavior changes under some implementations.
 | dynamic block starts by repeating the last code length         | error        | error          | basic error      | *internal error*          | *internal error* |
 |----------------------------------------------------------------+--------------+----------------+------------------+---------------------------+------------------|
 | reference stays in bounds but goes beyond zlib window size     | outputs data | *error*        | outputs data     | outputs data              | outputs data     |
-| zlib preset dictionary required but none provided              | error        | error          | basic error      | error                     | *outputs data¹*  |
+| zlib preset dictionary required but none provided              | error        | error          | basic error      | error                     | *outputs data*   |
 | wrong Adler-32 checksum                                        | error        | error          | basic error      | *outputs data by default* | error            |
 |----------------------------------------------------------------+--------------+----------------+------------------+---------------------------+------------------|
 | wrong gzip magic bytes                                         | error        | error          | basic error      | error                     | error            |
@@ -179,9 +179,6 @@ deviation since they may cause behavior changes under some implementations.
 | gzip data with incorrect header checksum                       | error        | error          | basic error      | *outputs data*            | *outputs data*   |
 | gzip extra fields                                              | handled      | handled        | *basic error*    | handled                   | *basic error*    |
 | inconsistent length fields in extra fields section             | outputs data | *error*        | *n/a*            | outputs data              | *n/a*            |
-
-¹ In combination with the behavior for out-of-bounds references, this means that
-data with preset dictionaries will silently decompress incorrectly.
 
 
 
