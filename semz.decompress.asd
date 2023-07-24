@@ -18,7 +18,7 @@
                (:file "adler32" :depends-on ("common"))
                (:file "zlib" :depends-on ("common" "io" "bits" "deflate" "adler32"))
 
-               (:file "crc32" :depends-on ("common"))
-               (:file "gzip" :depends-on ("common" "io" "bits" "deflate" "crc32"))
+               (:file "crc" :depends-on ("common"))
+               (:file "gzip" :depends-on ("common" "io" "bits" "deflate" "crc"))
 
-               (:file "bzip2" :depends-on ("common" "bits" "huffman" "crc32" "tables"))))
+               (:file "bzip2" :depends-on ("common" "bits" "huffman" "crc" "tables"))))
