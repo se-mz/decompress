@@ -267,19 +267,6 @@
 (defun deflate-buffer-fill-threshold (buffer)
   (- (length buffer) (- +largest-deflate-expansion+ 1)))
 
-;;; Moves the recently decompressed data to the window portion of the buffer, in
-;;; preparation for further decompressed output. Note that this function can
-;;; overwrite freshly decompressed data if the window has just been filled for
-;;; the first time.
-(defun setup-window (ds)
-  (let ((end (ds-fill-pointer ds))
-        (wsize (ds-window-size ds)))
-    (when (> end wsize)
-      (replace (ds-buffer ds) (ds-buffer ds)
-               :start1 0 :end1 wsize
-               :start2 (- end wsize) :end2 end))
-    (setf (ds-fill-pointer ds) (min end wsize))))
-
 ;;; Writes decompressed data into the buffer and returns the new fill pointer
 ;;; (but doesn't update it yet).
 (defun decode-huffman-data (ds dhi)
@@ -394,8 +381,8 @@
 (defun next-deflate-chunk (ds trailing-bits)
   (check-type ds deflate-state)
   (check-type trailing-bits integer)
-  ;; It's safe to call this at the beginning when the window is empty, too.
-  (setup-window ds)
+  (setf (ds-fill-pointer ds)
+        (flush-dict-buffer (ds-buffer ds) (ds-fill-pointer ds) (ds-window-size ds)))
 
   (let ((lbr (ds-bit-reader ds))
         (start (ds-fill-pointer ds)))

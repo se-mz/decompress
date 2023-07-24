@@ -75,4 +75,4 @@
 
 ;; These objects can be passed to specify the compression format.
 (d:list-supported-formats)
-;; => (:BZIP2 :GZIP :ZLIB :DEFLATE)
+;; => (:XZ :LZMA2 :RAW-LZMA2 :LZMA :RAW-LZMA :BZIP2 :GZIP :ZLIB :DEFLATE)

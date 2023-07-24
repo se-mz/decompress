@@ -1,3 +1,9 @@
+;;;; Cyclic Redundancy Checks
+;;;
+;;; So far we implement CRC-32 and CRC-64. If we add any more, this file could
+;;; use a refactor; the CRC implementations are all very similar.
+(cl:in-package #:semz.decompress)
+
 ;;;; CRC-32
 ;;;
 ;;; We normally use the textbook bytewise implementation that can be found
@@ -10,8 +16,6 @@
 ;;; has 32-bit signed fixnums even on 64-bit implementations), it still seems to
 ;;; be significantly slower, so I didn't bother with that. Maybe not the best
 ;;; kind of benchmark since ABCL is wonky, but I had no 32-bit impls at hand.
-(cl:in-package #:semz.decompress)
-
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (declaim (type (simple-array (unsigned-byte 32) (256)) +crc-32-table+))
   (define-constant +crc-32-table+
@@ -104,3 +108,86 @@
   (logxor #xFFFFFFFF state))
 (defun crc-32 (data start end)
   (finish-crc-32 (update-crc-32 data start end (start-crc-32))))
+
+
+
+
+;;;; CRC-64
+;;;
+;;; The textbook implementation is good enough for SBCL (and ABCL, amusingly
+;;; enough), but CCL chokes on it pretty badly, so we provide a second
+;;; implementation in terms of 32-bit integers. For ECL it makes little
+;;; performance difference, but the 32-bit version puts less pressure on the GC.
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (declaim (type (simple-array (unsigned-byte 64) (256)) +crc-64-table+))
+  (define-constant +crc-64-table+
+      (let* ((result (make-array 256 :element-type '(unsigned-byte 64)))
+             (magic #xC96C5795D7870F42))
+        (dotimes (i 256 result)
+          (let ((next i))
+            (dotimes (j 8)
+              (setf next (if (logbitp 0 next)
+                             (logxor (ash next -1) magic)
+                             (ash next -1))))
+            (setf (aref result i) next))))
+    :test 'equalp)
+
+  (declaim (type (simple-array (unsigned-byte 32) (256 2)) +split-crc-64-table+))
+  (define-constant +split-crc-64-table+
+      (let* ((result (make-array '(256 2) :element-type '(unsigned-byte 32))))
+        (dotimes (i 256 result)
+          (setf (aref result i 0) (ldb (byte 32  0) (aref +crc-64-table+ i))
+                (aref result i 1) (ldb (byte 32 32) (aref +crc-64-table+ i)))))
+    :test 'equalp))
+
+(defun start-crc-64 ()
+  (- (expt 2 64) 1))
+
+(defun finish-crc-64 (state)
+  (logxor (- (expt 2 64) 1) state))
+
+(defun basic-update-crc-64 (data start end state)
+  (declare (type buffer data)
+           (type array-length start end)
+           (type (unsigned-byte 64) state)
+           ;; Silence complaints about the return value.
+           #+sbcl (sb-ext:muffle-conditions sb-ext:compiler-note)
+           (optimize speed))
+  (assert (<= 0 start end (length data)))
+  (locally (declare (optimize (safety 0)))
+    (loop :while (< start end) :do
+      (setf state (logxor (aref +crc-64-table+ (logxor (logand #xFF state) (aref data start)))
+                          (ash state -8)))
+      (incf start)))
+  state)
+
+(defun split-update-crc-64 (data start end state)
+  (declare (type buffer data)
+           (type array-length start end)
+           (type (unsigned-byte 64) state)
+           #+sbcl (sb-ext:muffle-conditions sb-ext:compiler-note)
+           (optimize speed))
+  (assert (<= 0 start end (length data)))
+  (let ((state1 (ldb (byte 32 0) state))
+        (state2 (ldb (byte 32 32) state)))
+    (declare (type (unsigned-byte 32) state1 state2))
+    (locally (declare (optimize (safety 0)))
+      (loop :while (< start end) :do
+        (psetf state1 (logxor (aref +split-crc-64-table+
+                                    (logxor (logand #xFF state1) (aref data start))
+                                    0)
+                              (logior (ash (ldb (byte 8 0) state2) 24)
+                                      (ash state1 -8)))
+               state2 (logxor (aref +split-crc-64-table+
+                                    (logxor (logand #xFF state1) (aref data start))
+                                    1)
+                              (ash state2 -8)))
+        (incf start)))
+    (logior (ash state2 32) state1)))
+
+(defun update-crc-64 (data start end state)
+  #+(or sbcl abcl)
+  (basic-update-crc-64 data start end state)
+  #-(or sbcl abcl)
+  (split-update-crc-64 data start end state))

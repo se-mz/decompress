@@ -20,6 +20,7 @@
   (:import-from #:alexandria
                 #:array-length
                 #:clamp
+                #:compose
                 #:define-constant
                 #:ensure-list
                 #:iota
@@ -160,15 +161,42 @@ Even when the input is a stream, it is this condition which is signalled, not
             (setf ,@(loop :for i :from 0 :below octet-count
                           :collect `(aref vector (+ index ,i))
                           :collect `(ldb (byte 8 ,(* 8 i)) value)))
+            value)))
+     (define-be-accessor (name octet-count)
+       `(progn
+          (declaim (inline ,name (setf ,name))
+                   (ftype (function (buffer array-length) (unsigned-byte ,(* 8 octet-count))) ,name))
+          (defun ,name (vector index)
+            (declare (type buffer vector)
+                     (type array-length index))
+            (logior ,@(loop :for i :from 0 :below octet-count
+                            :collect `(ash (aref vector (+ index ,(- octet-count 1) (- ,i)))
+                                           ,(* 8 i)))))
+          (defun (setf ,name) (value vector index)
+            (setf ,@(loop :for i :from 0 :below octet-count
+                          :collect `(aref vector (+ index ,(- octet-count 1) (- ,i)))
+                          :collect `(ldb (byte 8 ,(* 8 i)) value)))
             value))))
   (define-le-accessor ub16ref/le 2)
+  (define-le-accessor ub24ref/le 3)
   (define-le-accessor ub32ref/le 4)
-  (define-le-accessor ub64ref/le 8))
+  (define-le-accessor ub48ref/le 6)
+  (define-le-accessor ub64ref/le 8)
+
+  (define-be-accessor ub16ref/be 2)
+  (define-be-accessor ub32ref/be 4)
+  (define-be-accessor ub64ref/be 8))
+
+(defun positions-if (predicate sequence)
+  (loop :for i :from 0 :below (length sequence)
+        :when (funcall predicate (elt sequence i))
+          :collect i))
 
 (defun positions (elt sequence)
-  (loop :for i :from 0 :below (length sequence)
-        :when (eql elt (elt sequence i))
-          :collect i))
+  (positions-if (lambda (x) (eql x elt)) sequence))
+
+(defun hexdigitp (char)
+  (not (not (position char "0123456789abcdefABCDEF"))))
 
 (defun reverse-ub32-byte-order (ub32)
   (logior (ash (ldb (byte 8 0) ub32) 24)
@@ -217,3 +245,28 @@ If the format doesn't support multi-member files, returns nil."))
 (defmethod make-reset-state (old-state)
   (declare (ignore old-state))
   nil)
+
+;;; Multi-member formats with trailing non-member data (e.g. padding) can handle
+;;; it in `make-reset-state' and then return this dummy state to signal EOF.
+(defclass eof-dummy-state () ())
+(defmethod next-decompressed-chunk ((state eof-dummy-state))
+  (values +dummy-buffer+ 0 0 t))
+
+;;; We usually unify dictionaries and output buffers by designating the first
+;;; `d' bytes as the dictionary area. When the output buffer is full, we publish
+;;; the new data; on the next `next-decompressed-chunk' call, we then move the
+;;; last `d' bytes into the dictionary area at the start. Until the buffer is
+;;; filled for the first time, we write directly into the dictionary area.
+(defun flush-dict-buffer (buffer buffer-i dict-size)
+  "Moves trailing data in `buffer' into the dictionary area as designated by
+`dict-size'. Returns the new value of `buffer-i'."
+  (declare (type buffer buffer)
+           (type array-length buffer-i dict-size))
+  (if (<= buffer-i dict-size)
+      buffer-i
+      (progn
+        (replace buffer buffer
+                 :start1 0 :end1 dict-size
+                 :start2 (- buffer-i dict-size)
+                 :end2 buffer-i)
+        dict-size)))

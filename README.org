@@ -22,7 +22,7 @@ is also a [[https://github.com/se-mz/decompress][Github mirror]] if you're into 
 :CUSTOM_ID: features
 :END:
 
-- *Supported formats*: Deflate, zlib, gzip, bzip2.
+- *Supported formats*: Deflate, zlib, gzip, bzip2, LZMA, LZMA2, XZ.
 
 - *Safety*: [[#edge-cases][Edge cases]] are properly detected and explicitly handled; malformed
   data is rejected early. The interface is designed to be hard to misuse; in
@@ -37,10 +37,10 @@ is also a [[https://github.com/se-mz/decompress][Github mirror]] if you're into 
 
 - *Performance*: To my knowledge, this is the second fastest Deflate decoder and
   the fastest bzip2 decoder in pure Common Lisp. Under SBCL, file-to-file
-  decompression usually hits 1.5x-1.7x the runtime of GNU gzip, 2.2x-3.3x the
-  runtime of zlib, and 1.3x-1.5x the runtime of bzip2. It is some 1.7x-2.4x
-  faster than [[https://github.com/sharplispers/chipz][chipz]] for Deflate and 1.3x-1.7x faster for bzip2.
-  See [[#performance][the performance section]] for more details.
+  decompression usually hits 30-80% the speed of the C reference
+  implementations, depending on the format. Among CL libraries, we're only
+  beaten by 3bz. See [[#performance][the performance section]] for more details and other CL
+  implementations.
 
 
 
@@ -53,9 +53,12 @@ From ~example.lisp~:
 
 #+include: example.lisp src lisp
 
-The supported multi-member formats are gzip and bzip2. Members of gzip and bzip2
-are trivial to handle manually with ~decompress~ or ~make-decompression-stream~
-if you need to do that for some reason.
+The supported multi-member formats are gzip, bzip2 and XZ. Members of gzip and
+bzip2 are trivial to handle manually with [[#fn-decompress][decompress]]
+or [[#fn-make-decompression-stream][make-decompression-stream]] if you need to do that for some reason; for XZ,
+you'll need some contortions to deal with padding, but since the spec explicitly
+recommends not to use multi-member XZ when embedding into a different format,
+you will probably not run into this.
 
 For more details, see the [[#reference][reference]].
 
@@ -67,7 +70,7 @@ For more details, see the [[#reference][reference]].
 :END:
 
 The other libraries under consideration are [[https://github.com/sharplispers/chipz][chipz]], which is probably the most
-popular library; [[https://pmsf.eu/resources/lisp/Deflate.html][an implementation by Pierre Mai]] that is compact and notably
+popular library; [[https://github.com/pmai/Deflate][deflate]], a compact implementation by Pierre Mai that is notably
 used by Quicklisp; and [[https://github.com/3b/3bz][3bz]], which is notably used by pngload.
 
 |                           | semz.decompress-1.1.0            | chipz-20230418                                        | deflate-1.0.1 (Mai)                       | 3bz-20230408                                               |
@@ -221,6 +224,133 @@ Other than this, the format does not allow for many edge cases to begin with
 since most of its transformations simply cannot have invalid inputs. Just like
 the reference implementation, we do not care about wasteful encodings such as
 e.g. defining six Huffman trees despite only using three.
+
+
+
+*** LZMA
+:PROPERTIES:
+:CUSTOM_ID: edge-cases-lzma
+:END:
+
+LZMA has a [[https://7-zip.org/sdk.html][spec]], but it's essentially just a commented C++ reference
+implementation. It leaves very little freedom to the implementer but
+nevertheless contains some minor pitfalls:
+
+- The range decoder's finishing state is also a valid intermediate state, so it
+  is necessary to define some EOF handling scheme. LZMA defines two and XZ
+  defines another one; there are no other possible schemes. We default to the
+  most permissive scheme (which can handle all valid inputs for the other two)
+  but let the user optionally override this.
+
+- Two of the EOF handling schemes require that the decompressed size is known in
+  advance. If the last Lempel-Ziv match expands beyond the declared decompressed
+  size, one might either signal an error or truncate it and finish gracefully;
+  we signal an error, just like the reference implementation and XZ Utils.
+
+- The range decoder's finishing state cannot result in an EOF marker when
+  treated like an intermediate state. As a result, the "optional EOF marker"
+  scheme (the one we default to) can only be implemented in the way described in
+  the spec: When the declared size is reached, only try to consume an EOF marker
+  if the range decoder is not yet in a finishing state.
+
+
+
+*** LZMA2
+:PROPERTIES:
+:CUSTOM_ID: edge-cases-lzma2
+:END:
+
+LZMA2 has no spec, but is a relatively straightforward wrapper on top of LZMA
+that adds uncompressed blocks, flush points, and LZMA state resets. We don't
+expose flush points to the user.
+
+We follow XZ Utils' implementation; even though there have been subtle
+compatibility issues with the LZMA reference implementation in the past, the XZ
+Utils implementation is stricter and avoids certain edge cases entirely. It is
+also much cleaner; when testing some of the edge cases below, the LZMA SDK's
+implementation would often simply segfault.
+
+LZMA2 is subject to the following edge cases:
+
+- The data must start with a flush point; the first LZMA block after a flush
+  point must specify new LZMA parameters.
+
+- Every block declares both compressed and decompressed sizes. These could be
+  used to support partial decompression, so they should be verified. We do
+  verify them even though we don't support partial decompression.
+
+- The underlying data of an LZMA block might contain an EOF marker. XZ Utils
+  signals an error when this happens, as do we. If an implementation allows
+  this, care must be taken to either skip trailing data or signal an error if
+  any exists.
+
+- An LZMA state reset does not reset the ~posState~ variable. Furthermore,
+  uncompressed blocks will update it appropriately.
+
+  Note that implementing this correctly only matters in the extremely unusual
+  case where an LZMA block is followed by some uncompressed blocks and then
+  another LZMA block, with no flush points in between, and where the second LZMA
+  block doesn't reset the LZMA state; if the second LZMA block resets the state,
+  then the value of ~posState~ is completely irrelevant because it merely
+  denotes the starting position in an array of probabilities that are all
+  initialized to the same value anyway.
+
+  LZMA2 data with this sequence of blocks is extremely unlikely to be produced
+  in practice since the encoder can't really know that the second LZMA block
+  benefits from state reuse despite the uncompressed data in the middle.
+  Nevertheless, a base64-encoded XZ test file that triggers this case can be
+  found below. It decodes to the string ~LOL~, but fails to decompress if
+  ~posState~ isn't updated by uncompressed blocks.
+
+  #+begin_src
+  /Td6WFoAAAD/EtlBAgAhAQoAAABTxyq54AAAAAUJACX//AAAAgAAT4AAAAAFACfRR0AAAAABKAM7StLkBnKeegEAAAAAAFla
+  #+end_src
+
+
+
+*** XZ
+:PROPERTIES:
+:CUSTOM_ID: edge-cases-xz
+:END:
+
+XZ has a decent [[https://tukaani.org/xz/format.html][spec]] and is mostly a container format. XZ Utils supports partial
+decompression and skipping the checksum verification of unknown checksum types;
+we don't. Note that we implement /all/ standard filters, not just LZMA2. A list
+of edge cases is below; most of these can be found in XZ Utils' elaborate test
+suite as well.
+
+- XZ duplicates stream header information and length information for all blocks
+  at the end of the file to support partial decompression; while we do not
+  support partial decompression, we nevertheless verify the lengths at the end.
+
+- XZ's variable length integers must be encoded with the shortest possible
+  encoding. This is easy to miss because the spec doesn't explicitly mention it,
+  but the example code and the test suite both check for it.
+
+- XZ files can consist of multiple concatenated members, and there may be
+  padding after each member, including the final one. The padding must come in
+  blocks of four and consist of zero bytes. Padding is not allowed at the start
+  of the file.
+
+- Fields whose size isn't necessarily a multiple of four are padded with the
+  /minimal/ number of zero bytes to ensure such a size. The sole exception to
+  this is the block header padding, which consists of however many bytes are
+  required to match the declared size.
+
+- The total compressed and uncompressed data of a single member are each limited
+  to at most 2^{63} - 1 bytes (~8 exabytes). XZ Utils detects this before the
+  block that pushes the size over the edge is even decoded; we only detect it
+  once the read/output data exceeds this limit.
+
+- SHA-256 is limited to 2^{61} - 1 bytes of input and therefore cannot be used
+  with extremely large XZ files. We signal an error when a file using SHA-256
+  exceeds this limit.
+
+- LZMA2 can only be the last filter in a filter chain; the other standard
+  filters (i.e. delta and the BCJ filters) can never be the last filter.
+
+- Embedded LZMA2 data might signal EOF before the declared end of the data. We
+  signal an error in this case, as does XZ Utils.
 
 
 
@@ -711,12 +841,16 @@ element of the list returned by [[#fn-list-supported-formats][list-supported-for
 Returns the header metadata of the data associated to ~stream~. Depending on the
 format, the possible entries are as below.
 
+
+
 *** Deflate
 :PROPERTIES:
 :CUSTOM_ID: header-deflate
 :END:
 
 Deflate data doesn't have a header.
+
+
 
 *** Zlib
 :PROPERTIES:
@@ -731,6 +865,8 @@ Deflate data doesn't have a header.
 
 - ~dictionary~: The Adler-32 checksum (as returned by [[#fn-adler-32][adler-32]]) of the preset
   dictionary, if applicable, or ~nil~.
+
+
 
 *** Gzip
 :PROPERTIES:
@@ -760,6 +896,8 @@ data than anything we come up with.
 
 - ~operating-system~: Integer. See gzip spec.
 
+
+
 *** Bzip2
 :PROPERTIES:
 :CUSTOM_ID: header-bzip2
@@ -769,18 +907,84 @@ data than anything we come up with.
 
 
 
+*** Raw LZMA
+:PROPERTIES:
+:CUSTOM_ID: header-raw-lzma
+:END:
+
+Raw LZMA data doesn't have a header.
+
+
+
+*** LZMA
+:PROPERTIES:
+:CUSTOM_ID: header-lzma
+:END:
+
+- ~lc~, ~lp~, ~pb~: Integer. The corresponding LZMA parameter of the same name.
+
+- ~window-size~: The declared window size, in bytes.
+
+- ~decompressed-size~: The declared output size, in bytes. A [[#c-decompression-error][decompression-error]] is
+  signalled when this doesn't match the actual output size, so you can use it to
+  prepare suitable buffers.
+
+
+
+*** Raw LZMA2
+:PROPERTIES:
+:CUSTOM_ID: header-raw-lzma2
+:END:
+
+Raw LZMA2 data doesn't have a header.
+
+
+
+*** LZMA2
+:PROPERTIES:
+:CUSTOM_ID: header-lzma2
+:END:
+
+- ~window-size~: The declared window size, in bytes.
+
+
+
+*** XZ
+:PROPERTIES:
+:CUSTOM_ID: header-xz
+:END:
+
+- ~checksum-type~: An integer from 0 to 15 indicating the checksum used.
+  Preassigned numbers are 0 for none, 1 for CRC-32, 4 for CRC-64, and 10 for
+  SHA-256.
+
+
+
 ** Format-specific options
 :PROPERTIES:
 :CUSTOM_ID: format-specific-options
 :END:
 
-The following keyword arguments can be passed to [[#fn-make-decompression-stream][make-decompression-stream]]
-and [[#fn-decompress][decompress]] for specific formats. They are ignored for all other formats.
+The following keyword arguments can be passed
+to [[#fn-make-decompression-stream][make-decompression-stream]], [[#fn-make-full-decompression-stream][make-full-decompression-stream]], [[#fn-decompress][decompress]]
+and [[#fn-decompress-all][decompress-all]] for specific formats. They are ignored for all other formats.
 
-- ~window-size~ (deflate): A non-negative integer. Determines how far back
-  references can reach; references that go back further result in
-  a [[#c-decompression-error][decompression-error]]. The default is 2^{15}, which results in no restrictions
-  whatsoever.
+| format    | mandatory                       | optional                                              |
+|-----------+---------------------------------+-------------------------------------------------------|
+| deflate   | -                               | ~window-size~, ~prefix~, ~prefix-start~, ~prefix-end~ |
+| zlib      | -                               | ~dictionary~                                          |
+| gzip      | -                               | -                                                     |
+| raw-lzma  | ~lc~, ~lp~, ~pb~, ~window-size~ | ~decompressed-size~, ~eof-mode~                       |
+| lzma      | -                               | ~eof-mode~                                            |
+| raw-lzma2 | ~window-size~                   | -                                                     |
+| lzma2     | -                               | -                                                     |
+| xz        | -                               | -                                                     |
+
+- ~window-size~ (deflate, raw-lzma, raw-lzma2): A non-negative integer.
+  Determines how far back references can reach; references that go back further
+  result in a [[#c-decompression-error][decompression-error]]. For ~deflate~, the default is 2^{15}, which
+  results in no restrictions whatsoever. For ~raw-lzma~ and ~raw-lzma2~, this
+  parameter has no default; it is mandatory.
 
 - ~prefix~, ~prefix-start~, ~prefix-end~ (deflate): Either ~nil~ or an octet
   vector with optional bounding index designators. If not ~nil~, makes the
@@ -797,6 +1001,23 @@ and [[#fn-decompress][decompress]] for specific formats. They are ignored for al
   values ~prefix~, ~prefix-start~, ~prefix-end~ that are used like the options
   of the same name for Deflate. If ~prefix~ is ~nil~,
   an [[#c-unrecognized-zlib-dictionary][unrecognized-zlib-dictionary]] condition is signalled.
+
+- ~lc~, ~lp~, ~pb~ (raw-lzma): Integers such that 0 ≤ lc ≤ 8 and 0 ≤ lp, pb ≤ 4.
+  Correspond to the LZMA parameters of the same name. These parameters do not
+  have defaults; they are mandatory.
+
+- ~eof-mode~ (raw-lzma, lzma): One of the keywords ~:always~, ~:maybe~, or
+  ~:never~. Determines whether data whose decompressed size is known is
+  terminated by an end of file marker. The default is ~:maybe~, which can handle
+  all valid inputs from the other two modes; the only reason to change this
+  option is to be stricter about inputs.
+
+- ~decompressed-size~ (raw-lzma): Either nil or a non-negative integer. If not
+  nil, this is the declared decompressed size of the data, as in the header data
+  of the same name for ~lzma~; if the real size differs, a [[#c-decompression-error][decompression-error]]
+  is signalled. Note that this interacts with ~eof-mode~. Not to be confused
+  with the ~output-size~ option for [[#fn-decompress][decompress]] and [[#fn-decompress-all][decompress-all]], which is
+  merely an optimization hint.
 
 
 

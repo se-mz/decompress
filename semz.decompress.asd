@@ -21,4 +21,10 @@
                (:file "crc" :depends-on ("common"))
                (:file "gzip" :depends-on ("common" "io" "bits" "deflate" "crc"))
 
-               (:file "bzip2" :depends-on ("common" "bits" "huffman" "crc" "tables"))))
+               (:file "bzip2" :depends-on ("common" "bits" "huffman" "crc" "tables"))
+
+               (:file "lzma" :depends-on ("common" "io"))
+               (:file "lzma2" :depends-on ("common" "io" "lzma"))
+               (:file "sha256" :depends-on ("common" "tables"))
+               (:file "xz-bcj-filters" :depends-on ("common" "io"))
+               (:file "xz" :depends-on ("common" "io" "lzma2" "xz-bcj-filters" "crc" "sha256"))))
