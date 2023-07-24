@@ -39,9 +39,13 @@
 
 (define-condition eof (decompression-error) ()
   (:documentation
-   "Signalled when the input stream/buffer is exhausted. Notably implies that the
-data up until this point was not detectably malformed. Note that even when the
-input is a stream, it is this condition which is signalled, not `end-of-file'."))
+   "Signalled when the input stream/buffer is exhausted. Notably implies that we
+did not detect errors in the data up until this point, but this is not a hard
+guarantee that the data can be continued in a valid manner since it would be
+infeasible to verify this.
+
+Even when the input is a stream, it is this condition which is signalled, not
+`end-of-file'."))
 
 (defun die (fmt &rest fmt-args)
   (error 'decompression-error :format-control fmt :format-arguments fmt-args))
