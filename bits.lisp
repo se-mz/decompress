@@ -12,7 +12,7 @@
 ;;; Huffman code reader.
 (cl:in-package #:semz.decompress)
 
-;;; Since bytes are read as needed, at least 8-1=7 extra bits might end up being
+;;; Since bytes are read as needed, up to 8-1=7 extra bits might end up being
 ;;; buffered. The restriction on the number of bits read by `read-bits' is not
 ;;; essential and only exists for cheap optimization.
 (defmacro define-bit-reader (type-name prefix max-ensure max-read endianness)
@@ -46,6 +46,8 @@
 
          (define-fast-function (,peek-bits (unsigned-byte ,max-ensure))
              ((br ,type-name) (n (integer ,0 ,max-ensure)))
+           "Returns the next `n' buffered bits in `br', padding with zero bits if
+necessary."
            ,(ecase endianness
               (:le `(ldb (byte n 0) (,buffer br)))
               (:be `(ash (,buffer br) (- (- (,bits-left br) n))))))
@@ -64,7 +66,8 @@
              ((br ,type-name) (n (integer 0 ,max-read)))
            "Returns and consumes the next `n' bits in `br'."
            (if (<= n ,max-ensure)
-               ;; Fast path for decoders
+               ;; Fast path, usually taken by decoders after inlining and dead
+               ;; code elimination since `n' is typically constant.
                (progn
                  (,ensure-bits br n)
                  (prog1 (,peek-bits br n)
@@ -114,4 +117,5 @@ guaranteed by consuming at least ~d bits without a call to `~(~a~)ensure-bits'."
 ;;; after 32 bits and use the bit reader on up to 32 bits at a time.
 (define-bit-reader lsb-bit-reader lbr- 15 32 :le)
 
+;;; Bzip allows Huffman codes of length up to 20.
 (define-bit-reader msb-bit-reader mbr- 20 48 :be)

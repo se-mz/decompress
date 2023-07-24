@@ -11,14 +11,16 @@
 ;;; input exhaustion, rather than `end-of-file'.
 (cl:in-package #:semz.decompress)
 
-(declaim (inline bs-buffer bs-start bs-end bs-refill-function buffer-stream-p))
-(defstruct (buffer-stream (:conc-name bs-))
+(declaim (inline buffer-stream-buffer buffer-stream-start buffer-stream-end
+                 buffer-stream-refill-function buffer-stream-p))
+(defstruct buffer-stream
   (buffer +dummy-buffer+ :type buffer)
   (start 0 :type array-length)
   (end   0 :type array-length)
   ;; Returns either a replacement buffer and the start/end range of the newly
-  ;; available bytes in said buffer, or nil if we ran out of input.
-  (refill-function (lambda () nil)))
+  ;; available bytes in said buffer, or nil if we ran out of input. Once it
+  ;; returns nil, it must return nil consistently.
+  (refill-function (constantly nil)))
 
 (deftype byte-source ()
   '(or stream buffer-stream))
@@ -28,10 +30,7 @@
   (if (typep array 'buffer)
       (make-buffer-stream :buffer array :start start :end end)
       (let ((buffer (make-array (min buffer-size (- end start)) :element-type 'octet)))
-        (replace buffer array :start2 start :end2 (+ start (length buffer)))
-        (incf start (length buffer))
-        (make-buffer-stream :buffer buffer :start 0 :end (length buffer)
-                            :refill-function
+        (make-buffer-stream :refill-function
                             (lambda ()
                               (if (< start end)
                                   (let ((bytes-added (min (- end start) (length buffer))))
@@ -47,23 +46,27 @@
                         (lambda ()
                           (let ((end (read-sequence buffer stream)))
                             (if (zerop end)
-                                (values nil    0 0)
+                                nil
                                 (values buffer 0 end)))))))
 
 (defun try-refill (bs)
   (declare (type buffer-stream bs))
   (loop
-    :until (< (bs-start bs) (bs-end bs)) :do
-      (multiple-value-bind (buffer start end)
-          (funcall (bs-refill-function bs))
-        (if (null buffer)
-            (return nil)
-            (progn
-              (assert (<= 0 start end (length buffer)))
-              (setf (bs-buffer bs) buffer
-                    (bs-start  bs) start
-                    (bs-end    bs) end))))
-    :finally (return t)))
+    (when (< (buffer-stream-start bs) (buffer-stream-end bs))
+      (return t))
+    (multiple-value-bind (buffer start end)
+        (funcall (buffer-stream-refill-function bs))
+      (when (null buffer)
+        (return nil))
+      (assert (<= 0 start end (length buffer)))
+      (setf (buffer-stream-buffer bs) buffer
+            (buffer-stream-start  bs) start
+            (buffer-stream-end    bs) end))))
+
+;;; Beware that, like all EOF checks, this function can attempt a read.
+(defun buffer-stream-check-eof (bs)
+  (and (= (buffer-stream-start bs) (buffer-stream-end bs))
+       (not (try-refill bs))))
 
 (define-fast-function (bs-read-byte octet) ((source byte-source))
   (if (buffer-stream-p source)
@@ -73,11 +76,11 @@
         ;; Since the JVM has built-in bounds checking and we ensure that buffer
         ;; stream bounds are valid at all times, safety 0 is acceptable here.
         #+abcl (declare (optimize (safety 0)))
-        (when (= (bs-start source) (bs-end source))
+        (when (= (buffer-stream-start source) (buffer-stream-end source))
           (unless (try-refill source)
             (%eof)))
-        (prog1 (aref (bs-buffer source) (bs-start source))
-          (incf (bs-start source))))
+        (prog1 (aref (buffer-stream-buffer source) (buffer-stream-start source))
+          (incf (buffer-stream-start source))))
       (let ((byte (read-byte source nil nil)))
         (when (null byte)
           (%eof))
@@ -92,13 +95,15 @@
     (buffer-stream
      (setf end (or end (length sequence)))
      (loop
-       (let ((amount (min (- (bs-end source) (bs-start source))
+       (let ((amount (min (- (buffer-stream-end source) (buffer-stream-start source))
                           (- end start))))
-         (replace sequence (bs-buffer source)
-                  :start1 start             :end1 (+ start amount)
-                  :start2 (bs-start source) :end2 (+ (bs-start source) amount))
+         (replace sequence (buffer-stream-buffer source)
+                  :start1 start
+                  :end1 (+ start amount)
+                  :start2 (buffer-stream-start source)
+                  :end2 (+ (buffer-stream-start source) amount))
          (incf start amount)
-         (incf (bs-start source) amount))
+         (incf (buffer-stream-start source) amount))
        (if (= start end)
            (return end)
            (unless (try-refill source)

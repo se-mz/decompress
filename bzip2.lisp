@@ -53,7 +53,7 @@
 ;;; copies of the same character X may be replaced with XXXX followed by n-4.
 ;;;
 ;;; Since we only know the buffer size of the RLE-compressed data (rather than
-;;; the final uncompressed data), this is the only step that is interruptible.
+;;; the final decompressed data), this is the only step that is interruptible.
 ;;; Otherwise, we only allow interruptions between blocks.
 
 (defstruct (bzip2-rle1-state (:conc-name rle1-))

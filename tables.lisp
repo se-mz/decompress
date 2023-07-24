@@ -78,8 +78,7 @@
            (lambda (s e)
              (parse-integer src :start (+ s 1) :end e :radix 16))
            (positions #\x src)
-           (positions #\L src))
-      )
+           (positions #\L src)))
   :test 'equalp)
 
 ;;; bzip2: randtable.c (trailing whitespace is intentional)
