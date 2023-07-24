@@ -1,7 +1,9 @@
 (cl:defpackage #:semz.decompress
   (:use #:cl)
   (:export #:decompress
+           #:decompress-all
            #:make-decompression-stream
+           #:make-full-decompression-stream
            #:list-supported-formats
 
            #:make-simple-zlib-dictionary
@@ -199,3 +201,19 @@ metadata which will be returned to the user."))
    "Returns four values: chunk, start, end, finalp. The data is in `chunk',
 between `start' and `end'. No callers modify the contents of `chunk'; methods
 may change its contents on later calls, but not before that."))
+
+(defgeneric make-reset-state (old-state)
+  (:documentation
+   "Returns two values:
+
+1. A new state that reads the next member of the same type, handling potential
+padding/etc in between, and maybe reuses large intermediate resources.
+
+2. The new header plist.
+
+If the format doesn't support multi-member files, returns nil."))
+
+;;; Most formats don't support multiple members, so default to that.
+(defmethod make-reset-state (old-state)
+  (declare (ignore old-state))
+  nil)

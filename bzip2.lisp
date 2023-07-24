@@ -447,6 +447,11 @@
                         :output-buffer (make-array (expt 2 17) :element-type 'octet))
          (list :block-size block-size))))))
 
+;;; Bzip2 multi-member files are concatenations. Bzip2 buffer sizes are at the
+;;; point where reuse could be worth it, but it's not urgent.
+(defmethod make-reset-state ((bz bzip2-state))
+  (byte-source->decompression-state :bzip2 (mbr-source (bz-bit-reader bz))))
+
 (defmethod next-decompressed-chunk ((state bzip2-state))
   (let ((mbr (bz-bit-reader state)))
     (ecase (bz-state state)

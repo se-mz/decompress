@@ -86,6 +86,12 @@
                         :extra-flags extra-flags
                         :operating-system os-info)))))))
 
+;;; Gzip multi-member files are just concatenated. Reusing the buffer isn't
+;;; worth it since Deflate buffers are pretty small; trees only incur a one-time
+;;; allocation and should be fine, too.
+(defmethod make-reset-state ((gs gzip-state))
+  (byte-source->decompression-state :gzip (lbr-source (ds-bit-reader (gs-deflate-state gs)))))
+
 (defmethod next-decompressed-chunk ((gs gzip-state))
   (multiple-value-bind (buffer start end finalp)
       ;; 32-bit checksum and 32-bit reduced length at the end, so 64 bits.

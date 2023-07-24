@@ -24,19 +24,16 @@ is also a [[https://github.com/se-mz/decompress][Github mirror]] if you're into 
 
 - *Supported formats*: Deflate, zlib, gzip, bzip2.
 
-- *Safety*: All [[#edge-cases][edge cases]] are properly detected and explicitly
-  handled; malformed data is rejected early. The interface is designed to be
-  hard to misuse; in particular, defaults try to provide the strongest
-  guarantees and built-in integrity checks are run without user intervention.
-  Memory usage is at most linear (and usually constant) with respect to input
-  size. No FFI is used anywhere.
+- *Safety*: [[#edge-cases][Edge cases]] are properly detected and explicitly handled; malformed
+  data is rejected early. The interface is designed to be hard to misuse; in
+  particular, single-member and multi-member data can be handled with separate
+  functions, defaults try to provide the strongest guarantees, and built-in
+  integrity checks are run without user intervention. No FFI is used anywhere.
 
-- *No overreads by default*: If the compressed data is well-formed and taken
-  from a byte stream, then no byte beyond the end of the compressed data will be
-  read, allowing this library to be used as a part of complicated stream
-  processing for other formats. This can be explicitly relaxed in the name of
-  performance; see the ~allow-overreads-p~ option to [[#fn-decompress][decompress]]
-  and [[#fn-make-decompression-stream][make-decompression-stream]].
+- *No mandatory overreads*: When reading a single well-formed member from a byte
+  stream, no byte beyond the end of the compressed data will be read, allowing
+  this library to be used as a part of complicated stream processing for other
+  formats.
 
 - *Performance*: To my knowledge, this is the second fastest Deflate decoder and
   the fastest bzip2 decoder in pure Common Lisp. Under SBCL, file-to-file
@@ -52,9 +49,15 @@ is also a [[https://github.com/se-mz/decompress][Github mirror]] if you're into 
 :CUSTOM_ID: quickstart
 :END:
 
-See the [[#reference][reference]] for more details.
+From ~example.lisp~:
 
 #+include: example.lisp src lisp
+
+The supported multi-member formats are gzip and bzip2. Members of gzip and bzip2
+are trivial to handle manually with ~decompress~ or ~make-decompression-stream~
+if you need to do that for some reason.
+
+For more details, see the [[#reference][reference]].
 
 
 
@@ -132,6 +135,12 @@ The Deflate spec has a few rough edges which we deal with as follows.
   codes 286 and 287 as well as the illegal distance codes 30 and 31, although
   these may never occur in the data. We allow them in blocks since otherwise the
   fixed Deflate block code wouldn't be expressible dynamically.
+
+Zlib and gzip do not add many edge cases by themselves; note however that the
+gzip /file format/ can consist of multiple gzip streams which each come with
+their own filename/etc info in their respective header. You can access these
+with [[#fn-decompress][~decompress~]] if necessary, but most decoders ignore anything except maybe
+the first header, which is readily accessible via [[#fn-decompress-all][~decompress-all~]].
 
 A more detailed comparison of edge case handling across libraries can be found
 below. An /error/ is an error of some library-defined type that could be handled
@@ -398,13 +407,12 @@ sequence.
 
 
 
-** Function: ~decompress~
+** Function: ~decompress-all~
 :PROPERTIES:
-:CUSTOM_ID: fn-decompress
+:CUSTOM_ID: fn-decompress-all
 :END:
-
-*decompress* format input
-&key start end output-size allow-overreads-p
+*decompress-all* format input
+&key start end output-size
 => decompressed-buffer, header
 
 - ~format~: A format specifier. See [[#fn-list-supported-formats][list-supported-formats]].
@@ -416,24 +424,83 @@ sequence.
 
 - ~output-size~: A non-negative integer or ~nil~. The default is ~nil~.
 
-- ~allow-overreads-p~: A generalized boolean. The default is ~nil~.
-
 - ~decompressed-buffer~: An octet vector.
 
-- ~header~: A property list with keyword keys. See [[#fn-decompression-stream-header][decompression-stream-header]].
+- ~header~: A property list with keyword keys.
 
 The most convenient interface to this library. Returns a fresh octet vector that
-contains the decompressed form of the ~format~-compressed data in ~input~.
+contains the decompressed form of the ~format~-compressed data in ~input~. If
+the format allows multiple members, all members are decompressed and
+concatenated. Trailing data results in a ~decompression-error~.
+
+~header~ is the header information of the first member.
+See [[#fn-decompression-stream-header][decompression-stream-header]].
 
 ~output-size~, if not ~nil~, should be the predicted size of the decompressed
 data. If correct, this prevents unnecessary copying at the end.
 
-If ~allow-overreads-p~ is true and ~input~ is a stream, bytes beyond the end of
-the compressed data might end up being read during decompression; enabling this
-option tends to significantly improve performance on stream inputs.
+In addition to the options listed above, ~decompress-all~ can
+take [[#format-specific-options][format-specific options]].
+
+This function is equivalent to calling [[#fn-decompress][decompress]] with ~all-members-p~ set; it
+exists to prevent the subtle errors that result from a forgotten
+~all-members-p~. If you want to decompress single members or preserve trailing
+data, use [[#fn-decompress][decompress]] instead. To handle large data in a streaming fashion,
+use [[#fn-make-full-decompression-stream][make-full-decompression-stream]].
+
+
+
+** Function: ~decompress~
+:PROPERTIES:
+:CUSTOM_ID: fn-decompress
+:END:
+
+*decompress* format input
+&key start end output-size all-members-p allow-overreads-p
+=> decompressed-buffer, header
+
+- ~format~: A format specifier. See [[#fn-list-supported-formats][list-supported-formats]].
+
+- ~input~: Either a ~binary-input-stream~ or an octet vector.
+
+- ~start~, ~end~: Bounding index designators for ~input~ if the latter is a
+  vector. Ignored if ~input~ is a stream.
+
+- ~output-size~: A non-negative integer or ~nil~. The default is ~nil~.
+
+- ~all-members-p~: A generalized boolean. The default is ~nil~.
+
+- ~allow-overreads-p~: A generalized boolean. The default is ~nil~.
+
+- ~decompressed-buffer~: An octet vector.
+
+- ~header~: A property list with keyword keys.
+
+Returns a fresh octet vector that contains the decompressed form of the
+~format~-compressed data in ~input~. If the format allows multiple members, only
+the first member is decompressed. Trailing data is ignored and will not be read
+from stream inputs, so that it can be handled by other code.
+
+~header~ is the header information of the decompressed member.
+See [[#fn-decompression-stream-header][decompression-stream-header]].
+
+~output-size~, if not ~nil~, should be the predicted size of the decompressed
+data. If correct, this prevents unnecessary copying at the end.
+
+If ~all-members-p~ is true, act like [[#fn-decompress-all][decompress-all]] instead. If the value of
+~all-members-p~ is known to be constant and true, it is recommended to
+use [[#fn-decompress-all][decompress-all]] over ~decompress~ since forgetting to set ~all-members-p~ can
+result in subtle bugs down the line.
+
+If ~allow-overreads-p~ is true and ~input~ is a stream, trailing data may be
+read, resulting in a minor speedup. This option rarely has to be specified since
+it is implied by ~all-members-p~.
 
 In addition to the options listed above, ~decompress~ can
 take [[#format-specific-options][format-specific options]].
+
+To handle large data in a streaming fashion, use [[#fn-make-decompression-stream][make-decompression-stream]].
+To handle all members at once, use [[#fn-decompress-all][decompress-all]].
 
 
 
@@ -449,6 +516,9 @@ gives detailed information about the exact error, we do not distinguish between
 e.g. failed checksums, out of bounds references or malformed Huffman trees on
 the type level since this information is basically useless to a programmatic
 user and usually just an artifact of corruption.
+
+Errors related to trailing data are also a ~decompression-error~ since it isn't
+possible to distinguish a malformed member from trailing data.
 
 Gross user errors such as passing in invalid bounding index designators or
 returning invalid dictionaries from a [[#format-specific-options][dictionary function]] do /not/ signal a
@@ -539,7 +609,7 @@ associated uncompressed data has been read.
 :END:
 
 *make-decompression-stream* format input
-&key start end allow-overreads-p
+&key start end allow-overreads-p all-members-p
 => decompression-stream
 
 - ~format~: A format specifier. See [[#fn-list-supported-formats][list-supported-formats]].
@@ -549,26 +619,65 @@ associated uncompressed data has been read.
 - ~start~, ~end~: Bounding index designators for ~input~ if the latter is a
   vector. Ignored if ~input~ is a stream.
 
+- ~all-members-p~: A generalized boolean. The default is ~nil~.
+
 - ~allow-overreads-p~: A generalized boolean. The default is ~nil~.
 
 - ~decompression-stream~: A [[#c-decompression-stream][decompression-stream]].
 
-The most general interface to this library. Returns a [[#c-decompression-stream][decompression-stream]]
-whence the decompressed form of the ~format~-compressed data in ~input~ can be
-read. ~input~ should not be modified or read from until ~decompression-stream~
-has reached end of file. If ~input~ is a stream, then the caller is responsible
-for closing it.
+The most general interface to this library. All other interfaces are implemented
+in terms of this one.
 
-Calling this function will read header information from ~input~, but no
-decompression will be performed until data is read from ~decompression-stream~.
+Returns a [[#c-decompression-stream][decompression-stream]] whence the decompressed form of the
+~format~-compressed data in ~input~ can be read. If the format allows multiple
+members, only the first member is decompressed. Trailing data is ignored and
+will not be read from stream inputs, so that it can be handled by other code.
 
-If ~allow-overreads-p~ is true and ~input~ is a stream, bytes beyond the end of
-the compressed data might end up being read during stream creation and
-decompression; enabling this option tends to significantly improve performance
-on stream inputs.
+~input~ should not be modified or read from until ~decompression-stream~ has
+reached end of file. If ~input~ is a stream, then the caller is responsible for
+closing it.
+
+Calling this function will read header information from ~input~ and make it
+available via [[#fn-decompression-stream-header][decompression-stream-header]], but no decompression will be
+performed until data is read from ~decompression-stream~.
+
+If ~all-members-p~ is true, the stream will decompress and concatenate all
+compressed members from the stream (if the format defines multiple members) and
+signal a [[#c-decompression-error][decompression-error]] if any trailing data is detected, similar
+to [[#fn-decompress-all][decompress-all]]. The provided header information is always that of the first
+member. If the value of ~all-members-p~ is known to be constant and true, it is
+recommended to use [[#fn-make-full-decompression-stream][make-full-decompression-stream]] over
+~make-decompression-stream~ since forgetting to set ~all-members-p~ can result
+in subtle bugs down the line.
+
+If ~allow-overreads-p~ is true and ~input~ is a stream, trailing data may be
+read, resulting in a minor speedup. This option rarely has to be specified since
+it is implied by ~all-members-p~.
 
 In addition to the options listed above, ~make-decompression-stream~ can
 take [[#format-specific-options][format-specific options]].
+
+
+
+** Function: ~make-full-decompression-stream~
+:PROPERTIES:
+:CUSTOM_ID: fn-make-full-decompression-stream
+:END:
+
+*make-full-decompression-stream* format input
+&key start end
+=> decompression-stream
+
+- ~format~: A format specifier. See [[#fn-list-supported-formats][list-supported-formats]].
+
+- ~input~: Either a ~binary-input-stream~ or an octet vector.
+
+- ~start~, ~end~: Bounding index designators for ~input~ if the latter is a
+  vector. Ignored if ~input~ is a stream.
+
+- ~decompression-stream~: A [[#c-decompression-stream][decompression-stream]].
+
+Wrapper around [[#fn-make-decompression-stream][make-decompression-stream]] that always passes ~all-members-p~.
 
 
 
