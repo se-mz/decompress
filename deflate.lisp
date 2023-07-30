@@ -307,25 +307,12 @@
                   (die "Unique distance code is out of bounds (0-29) or is not ~
                         encoded as a zero bit."))))
              (+ (csvref +deflate-dist-bases+ dist-code)
-                (lbr-read-bits lbr (csvref +deflate-dist-extra-bits+ dist-code))))
-
-           (replicate-segment (src-i dest-i length)
-             (declare (type array-length src-i dest-i length)
-                      (optimize speed))
-             ;; Expansions are at most 258 bytes, so a simple copy loop avoids
-             ;; the `replace' argument overhead and naturally deals with the
-             ;; case where source and destination regions overlap.
-             (assert (<= (+ src-i 1) dest-i (- (length buffer) length)))
-             (locally (declare (optimize (safety 0)))
-               (loop :for i :of-type array-length :from 0 :below length :do
-                 (setf (aref buffer (+ dest-i i)) (aref buffer (+ src-i i)))))))
+                (lbr-read-bits lbr (csvref +deflate-dist-extra-bits+ dist-code)))))
       (declare (ftype (function ((index-for +deflate-length-bases+))
                                 (integer 0 #.+largest-deflate-expansion+))
                       decode-length)
                (ftype (function ((integer 0 31)) (integer 0 #.+largest-deflate-distance+))
-                      decode-distance)
-               (ftype (function (array-length array-length array-length))
-                      replicate-segment))
+                      decode-distance))
       (loop
         (let ((code (ht-read-le-code lbr litlen-tree)))
           (cond
@@ -345,7 +332,7 @@
                (unless (<= distance (min pointer wsize))
                  (die "Reference points back further (~d) than the window allows (~d)."
                       distance (min pointer wsize)))
-               (replicate-segment (- pointer distance) pointer length)
+               (copy-match buffer (- pointer distance) pointer length)
                (incf pointer length)))
             ;; It is possible to hit this branch! Codes 286 & 287 may feature in
             ;; the Huffman code construction and can therefore be encoded.

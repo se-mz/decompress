@@ -586,7 +586,7 @@
              (type array-length total-i threshold)
              (type (integer 0 8) lc)
              (type (unsigned-byte 4) lp-mask pb-mask))
-    (labels ((copy-match (length distance)
+    (labels ((handle-match (length distance)
                (declare (type lzma-distance distance)
                         (type lzma-length length)
                         (optimize speed))
@@ -596,13 +596,9 @@
                  (die "Match extends beyond available data."))
                (unless (<= buffer-i (- max-buffer-i length))
                  (die "Match extends beyond declared decompressed size."))
-               (assert (<= distance buffer-i (- (length buffer) length)))
-               (locally (declare (optimize (safety 0)))
-                 (loop :repeat length :do
-                   (setf (aref buffer buffer-i)
-                         (aref buffer (- buffer-i distance)))
-                   (incf buffer-i)
-                   (incf total-i))))
+               (copy-match buffer (- buffer-i distance) buffer-i length)
+               (incf buffer-i length)
+               (incf total-i length))
 
              (update-history/literal ()
                (setf symbol-history (svref #(0 0 0 0 1 2 3 4 5 6 4 5) symbol-history)))
@@ -679,11 +675,11 @@
                       (progn
                         (assert (<= 0 (- buffer-i (+ 1 rep0))))
                         (aref buffer (- buffer-i (+ 1 rep0)))))))))
-      (declare (ftype (function (lzma-length lzma-distance)) copy-match)
+      (declare (ftype (function (lzma-length lzma-distance)) handle-match)
                (ftype (function () octet) decode-literal)
                (inline update-history/literal update-history/simple-match
                        update-history/short-rep update-history/long-rep
-                       copy-match decode-literal))
+                       handle-match decode-literal))
       (assert (< dict-size threshold (length buffer)))
       (loop
         (unless (< buffer-i threshold)
@@ -723,11 +719,11 @@
                    (die "Illegal EOF marker in LZMA data."))
                  (setf eofp t)
                  (return))
-               (copy-match (+ 2 len) (+ 1 rep0))))
+               (handle-match (+ 2 len) (+ 1 rep0))))
 
             ;; 11* - rep match
             (t
-             (copy-match
+             (handle-match
               (if (zerop (lrd-decode-predicted-bit lrd (lzsv-uses-rep0 vars) symbol-history))
                   ;; 110* - distance is rep0
                   (if (zerop (lrd-decode-predicted-bit lrd (lzsv-is-short-rep vars)

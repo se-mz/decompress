@@ -252,6 +252,9 @@ If the format doesn't support multi-member files, returns nil."))
 (defmethod next-decompressed-chunk ((state eof-dummy-state))
   (values +dummy-buffer+ 0 0 t))
 
+
+;;;; Lempel-Ziv helpers
+
 ;;; We usually unify dictionaries and output buffers by designating the first
 ;;; `d' bytes as the dictionary area. When the output buffer is full, we publish
 ;;; the new data; on the next `next-decompressed-chunk' call, we then move the
@@ -270,3 +273,19 @@ If the format doesn't support multi-member files, returns nil."))
                  :start2 (- buffer-i dict-size)
                  :end2 buffer-i)
         dict-size)))
+
+;;; Lempel-Ziv matches are a common feature and usually have relatively small
+;;; lengths (~300 max). As a result, this simple loop implementation has less
+;;; overhead than `replace' and deals with overlaps. The (safety 0) matters for
+;;; heavily compressed files; the loop is simple and guarded by an assertion, so
+;;; it's fine.
+(define-fast-function copy-match
+    ((buffer buffer)
+     (src-i array-length)
+     (dest-i array-length)
+     (length array-length))
+  (assert (<= (+ src-i 1) dest-i (- (length buffer) length)))
+  (locally (declare (optimize (safety 0)))
+    (loop :for i :of-type array-length :from 0 :below length :do
+      (setf (aref buffer (+ dest-i i))
+            (aref buffer (+ src-i i))))))
