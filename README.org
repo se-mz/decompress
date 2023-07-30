@@ -1,4 +1,4 @@
-#+title: A defensive and fast decompression library in pure Common Lisp
+#+title: decompress - A defensive and fast decompression library in pure Common Lisp
 #+options: ^:{}
 
 * Overview
@@ -6,14 +6,11 @@
 :CUSTOM_ID: overview
 :END:
 
-The title speaks for itself. I originally wrote the Deflate part of this library
-as a fun exercise in implementing something purely from the specification, but
-it ended up good enough to publish. Patching existing libraries would have been
-difficult due to different API promises.
-
-More formats may be added later; obvious candidates are xz and zstd. A
-compressor counterpart is highly unlikely. A download can be found [[https://semelz.de/downloads/][here]]; there
-is also a [[https://github.com/se-mz/decompress][Github mirror]] if you're into that.
+The title speaks for itself. More formats may be added in the future but for now
+none are planned. A compressor counterpart is highly unlikely. A download can be
+found [[https://semelz.de/downloads/][here]]; there is also a [[https://github.com/se-mz/decompress][Github mirror]], but note that this Readme might not
+display correctly there. On Quicklisp, the corresponding system is called
+~decompress~, although the package it defines is ~semz.decompress~.
 
 
 
@@ -25,7 +22,7 @@ is also a [[https://github.com/se-mz/decompress][Github mirror]] if you're into 
 - *Supported formats*: Deflate, zlib, gzip, bzip2, LZMA, LZMA2, XZ.
 
 - *Safety*: [[#edge-cases][Edge cases]] are properly detected and explicitly handled; malformed
-  data is rejected early. The interface is designed to be hard to misuse; in
+  data is rejected early.¹ The interface is designed to be hard to misuse; in
   particular, single-member and multi-member data can be handled with separate
   functions, defaults try to provide the strongest guarantees, and built-in
   integrity checks are run without user intervention. No FFI is used anywhere.
@@ -41,6 +38,8 @@ is also a [[https://github.com/se-mz/decompress][Github mirror]] if you're into 
   implementations, depending on the format. Among CL libraries, we're only
   beaten by 3bz. See [[#performance][the performance section]] for more details and other CL
   implementations.
+
+¹ This is a guideline; a hard guarantee would be infeasible.
 
 
 
@@ -58,7 +57,7 @@ bzip2 are trivial to handle manually with [[#fn-decompress][decompress]]
 or [[#fn-make-decompression-stream][make-decompression-stream]] if you need to do that for some reason; for XZ,
 you'll need some contortions to deal with padding, but since the spec explicitly
 recommends not to use multi-member XZ when embedding into a different format,
-you will probably not run into this.
+you probably won't run into this.
 
 For more details, see the [[#reference][reference]].
 
@@ -100,16 +99,16 @@ used by Quicklisp; and [[https://github.com/3b/3bz][3bz]], which is notably used
 :CUSTOM_ID: edge-cases
 :END:
 
-*** Deflate
+*** Deflate / zlib / gzip
 :PROPERTIES:
 :CUSTOM_ID: edge-cases-deflate
 :END:
 
 The Deflate spec has a few rough edges which we deal with as follows.
 
-- Some decompressors allow back references to go beyond the beginning of the
-  output data, pretending that the octets out of bounds were all zeroes. This
-  one always signals an error.
+- Some decompressors (e.g. GNU gzip) allow back references to go beyond the
+  beginning of the output data, pretending that the octets out of bounds were
+  all zeroes. This one always signals an error.
 
 - Huffman trees are uniquely determined by the associated sequence of code
   lengths, but not every such sequence corresponds to a tree - some leave codes
@@ -131,13 +130,14 @@ The Deflate spec has a few rough edges which we deal with as follows.
   change the Huffman tree (no EOB means no new dynamic block).
 
   However, there's little reason to ban this; since Deflate already allows
-  blocks of arbitrary length, nothing stops a stream from being infinite anyway
-  and a finite input is going to run into EOF either way.
+  arbitrarily many blocks of arbitrary length, nothing stops a stream from being
+  infinite anyway and a finite input is going to run into EOF either way.
 
 - Dynamic Deflate blocks can provide encodings for the illegal literal/length
   codes 286 and 287 as well as the illegal distance codes 30 and 31, although
   these may never occur in the data. We allow them in blocks since otherwise the
-  fixed Deflate block code wouldn't be expressible dynamically.
+  fixed Deflate block code wouldn't be expressible dynamically. Some
+  decompressors (e.g. zlib) do not allow this at all.
 
 Zlib and gzip do not add many edge cases by themselves; note however that the
 gzip /file format/ can consist of multiple gzip streams which each come with
@@ -150,8 +150,8 @@ below. An /error/ is an error of some library-defined type that could be handled
 by a library user; a /basic error/ is something like a failed assertion or
 ~(error "foo")~, where the problem is explicitly detected but can't be
 reasonably handled by a user; an /internal error/ is something like a type error
-or an array bounds violation that is signalled by the implementation (but not
-necessarily reliably so).
+or an array bounds violation that is signalled by the implementation, but not
+necessarily reliably so.
 
 Deviations from zlib behavior are *boldfaced* for convenience; note that
 deviation is not necessarily a bad thing in itself. We consider internal errors
@@ -337,7 +337,7 @@ suite as well.
   this is the block header padding, which consists of however many bytes are
   required to match the declared size.
 
-- The total compressed and uncompressed data of a single member are each limited
+- The total compressed and decompressed data of a single member are each limited
   to at most 2^{63} - 1 bytes (~8 exabytes). XZ Utils detects this before the
   block that pushes the size over the edge is even decoded; we only detect it
   once the read/output data exceeds this limit.
@@ -729,7 +729,7 @@ Direct superclasses: ~fundamental-binary-input-stream~
 
 Gray stream wrapper that can be used for complicated stream processing. The end
 of file is considered reached when the underlying compressed data ends and all
-associated uncompressed data has been read.
+associated decompressed data has been read. Users need not close these streams.
 
 
 
