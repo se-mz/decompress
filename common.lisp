@@ -63,6 +63,67 @@ Even when the input is a stream, it is this condition which is signalled, not
   '(simple-array octet (*)))
 
 
+;;;; Fast functions
+;;;
+;;; We rely heavily on typed inline functions rather than big macrolets in the
+;;; interest of readability; the macros below reduce the resulting clutter and
+;;; make it easier to adjust optimization qualities.
+;;;
+;;; As a general rule, we want to go fast, ignore qualities that are already
+;;; affected by heavy inlining, and keep the rest at the neutral defaults.
+;;;
+;;; On ABCL, (safety 0) makes a huge difference and basically just eliminates
+;;; type checks and inlines accesses. Since ABCL is JVM-based, the bad
+;;; consequences of (safety 0) are rather mild, too. Now if only it got an
+;;; actually fast `replace' implementation...
+;;;
+;;; ECL has unusual default settings: (speed 3) (space 0) (safety 2) (debug 3).
+;;; The manual documents how these settings affect things:
+;;;
+;;; https://ecl.common-lisp.dev/static/manual/Evaluation-and-compilation.html
+;;;
+;;; Setting safety and debug to 1 seems fine, considering what effects type
+;;; declarations already have on implementations like CCL. (safety 0) speeds up
+;;; things by quite a bit, but even ECL devs recommend against it, so that's an
+;;; easy no.
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defparameter *optimize-decls*
+    '((speed 3) (space 0) (compilation-speed 0)
+      #-abcl (safety 1)
+      #+abcl (safety 0)
+      (debug 1))
+    "The implementation-dependent optimization qualities used for fast functions."))
+
+(defmacro define-fast-function (name-with-optional-return-type (&rest args) &body body)
+  (destructuring-bind (name &optional (return-type '*))
+      (ensure-list name-with-optional-return-type)
+    (setf args (mapcar (lambda (x)
+                         (if (listp x)
+                             (progn
+                               (assert (= 2 (length x)))
+                               x)
+                             (list x 'T)))
+                       args))
+    `(progn
+       (declaim (ftype (function (,@(mapcar #'second args))
+                                 ,@(if (eq return-type '*)
+                                       '()
+                                       `(,return-type)))
+                       ,name))
+       (defun ,name (,@(mapcar #'first args))
+         (declare ,@(mapcar (lambda (a)
+                              (destructuring-bind (name type) a
+                                `(type ,type ,name)))
+                            args)
+                  (optimize ,@*optimize-decls*))
+         ,@body))))
+
+(defmacro define-fast-inline-function (name-with-optional-return-type (&rest args) &body body)
+  `(progn
+     (declaim (inline ,(first (ensure-list name-with-optional-return-type))))
+     (define-fast-function ,name-with-optional-return-type (,@args) ,@body)))
+
+
 ;;;; Helpers
 
 (define-constant +dummy-buffer+ (coerce #() 'buffer)
@@ -106,33 +167,6 @@ Even when the input is a stream, it is this condition which is signalled, not
                                             ,(string name)))))
              names))
      ,@body))
-
-;;; We rely heavily on typed inline functions rather than big macrolets in the
-;;; interest of readability; this macro removes some of the resulting clutter.
-(defmacro define-fast-function (name-with-optional-return-type (&rest args) &body body)
-  (destructuring-bind (name &optional (return-type '*))
-      (ensure-list name-with-optional-return-type)
-    (setf args (mapcar (lambda (x)
-                         (if (listp x)
-                             (progn
-                               (assert (= 2 (length x)))
-                               x)
-                             (list x 'T)))
-                       args))
-    `(progn
-       (declaim (ftype (function (,@(mapcar #'second args))
-                                 ,@(if (eq return-type '*)
-                                       '()
-                                       `(,return-type)))
-                       ,name)
-                (inline ,name))
-       (defun ,name (,@(mapcar #'first args))
-         (declare ,@(mapcar (lambda (a)
-                              (destructuring-bind (name type) a
-                                `(type ,type ,name)))
-                            args)
-                  (optimize speed))
-         ,@body))))
 
 (defmacro normalize-bounds (array start end)
   (check-type array symbol)
@@ -279,7 +313,7 @@ If the format doesn't support multi-member files, returns nil."))
 ;;; overhead than `replace' and deals with overlaps. The (safety 0) matters for
 ;;; heavily compressed files; the loop is simple and guarded by an assertion, so
 ;;; it's fine.
-(define-fast-function copy-match
+(define-fast-inline-function copy-match
     ((buffer buffer)
      (src-i array-length)
      (dest-i array-length)

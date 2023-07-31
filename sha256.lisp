@@ -24,12 +24,11 @@
   (make-sha-256-state))
 
 ;; The message schedule array is passed for reuse between blocks; maybe silly.
-(defun handle-sha-256-block (buffer start regs schedule)
-  (declare (type buffer buffer)
-           (type array-length start)
-           (type (simple-array (unsigned-byte 32) (8)) regs)
-           (type (simple-array (unsigned-byte 32) (64)) schedule)
-           (optimize speed))
+(define-fast-function handle-sha-256-block
+    ((buffer buffer)
+     (start array-length)
+     (regs (simple-array (unsigned-byte 32) (8)))
+     (schedule (simple-array (unsigned-byte 32) (64))))
   (let ((t1 0)
         . #.(loop :for var :in '(a b c d e f g h)
                   :for index :from 0
@@ -48,7 +47,7 @@ returning (unsigned-byte 32) by default. Argument types can be overridden."
                        :collect `(ftype (function ,argtypes (unsigned-byte 32)) ,name)
                          :into body-decls
                        :collect `(,name ,argnames
-                                        (declare (optimize speed)
+                                        (declare (optimize . #.*optimize-decls*)
                                                  ,@(mapcar (lambda (arg type)
                                                              `(type ,type ,arg))
                                                            argnames argtypes))

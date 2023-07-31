@@ -31,11 +31,11 @@
     :test 'equalp))
 
 (defmacro define-basic-update-crc (function-name base-table-constant)
-  `(defun ,function-name (data start end state)
-     (declare (type buffer data)
-              (type array-length start end)
-              (type (unsigned-byte 32) state)
-              (optimize speed))
+  `(define-fast-function ,function-name
+       ((data buffer)
+        (start array-length)
+        (end array-length)
+        (state (unsigned-byte 32)))
      (assert (<= 0 start end (length data)))
      ;; Safety 0 makes a crazy difference under ECL (2.8x) and improves CCL a
      ;; bit as well (1.16x).
@@ -65,11 +65,11 @@
               (logxor (ash (aref table (- j 1) i) -8)
                       (aref table 0 (logand #xFF (aref table (- j 1) i)))))))
 
-    `(defun ,function-name (data start end state)
-       (declare (type buffer data)
-                (type array-length start end)
-                (type (unsigned-byte 32) state)
-                (optimize speed))
+    `(define-fast-function ,function-name
+         ((data buffer)
+          (start array-length)
+          (end array-length)
+          (state (unsigned-byte 32)))
        (let ((table ,table))
          (declare (type (simple-array (unsigned-byte 32) (,table-count 256)) table))
          (loop :while (>= (- end start) ,(* 4 var-count)) :do
@@ -147,13 +147,13 @@
 (defun finish-crc-64 (state)
   (logxor (- (expt 2 64) 1) state))
 
-(defun basic-update-crc-64 (data start end state)
-  (declare (type buffer data)
-           (type array-length start end)
-           (type (unsigned-byte 64) state)
-           ;; Silence complaints about the return value.
-           #+sbcl (sb-ext:muffle-conditions sb-ext:compiler-note)
-           (optimize speed))
+(define-fast-function basic-update-crc-64
+    ((data buffer)
+     (start array-length)
+     (end array-length)
+     (state (unsigned-byte 64)))
+  ;; Silence complaints about the return value.
+  #+sbcl (declare (sb-ext:muffle-conditions sb-ext:compiler-note))
   (assert (<= 0 start end (length data)))
   (locally (declare (optimize (safety 0)))
     (loop :while (< start end) :do
@@ -162,12 +162,12 @@
       (incf start)))
   state)
 
-(defun split-update-crc-64 (data start end state)
-  (declare (type buffer data)
-           (type array-length start end)
-           (type (unsigned-byte 64) state)
-           #+sbcl (sb-ext:muffle-conditions sb-ext:compiler-note)
-           (optimize speed))
+(define-fast-function split-update-crc-64
+    ((data buffer)
+     (start array-length)
+     (end array-length)
+     (state (unsigned-byte 64)))
+  #+sbcl (declare (sb-ext:muffle-conditions sb-ext:compiler-note))
   (assert (<= 0 start end (length data)))
   (let ((state1 (ldb (byte 32 0) state))
         (state2 (ldb (byte 32 32) state)))

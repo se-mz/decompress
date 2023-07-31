@@ -32,7 +32,7 @@
            (buffer    0 :type (unsigned-byte ,max-buffer))
            (bits-left 0 :type (integer 0 ,max-buffer)))
 
-         (define-fast-function ,ensure-bits
+         (define-fast-inline-function ,ensure-bits
              ((br ,type-name) (n (integer 0 ,max-ensure)))
            "Ensures that at least `n' bits are buffered in `br'."
            (loop :while (< (,bits-left br) n)
@@ -44,7 +44,7 @@
                                             (bs-read-byte (,source br))))))
                      (incf (,bits-left br) 8)))
 
-         (define-fast-function (,peek-bits (unsigned-byte ,max-ensure))
+         (define-fast-inline-function (,peek-bits (unsigned-byte ,max-ensure))
              ((br ,type-name) (n (integer ,0 ,max-ensure)))
            "Returns the next `n' buffered bits in `br', padding with zero bits if
 necessary."
@@ -52,7 +52,7 @@ necessary."
               (:le `(ldb (byte n 0) (,buffer br)))
               (:be `(ash (,buffer br) (- (- (,bits-left br) n))))))
 
-         (define-fast-function ,dump-bits
+         (define-fast-inline-function ,dump-bits
              ((br ,type-name) (n (integer ,0 ,max-ensure)))
            "Removes up to the next `n' bits from the buffer in `br'."
            (assert (>= (,bits-left br) n))
@@ -62,7 +62,7 @@ necessary."
                     (:be `(ldb (byte (- (,bits-left br) n) 0) (,buffer br)))))
            (decf (,bits-left br) n))
 
-         (define-fast-function (,read-bits (unsigned-byte ,max-read))
+         (define-fast-inline-function (,read-bits (unsigned-byte ,max-read))
              ((br ,type-name) (n (integer 0 ,max-read)))
            "Returns and consumes the next `n' bits in `br'."
            (if (<= n ,max-ensure)
@@ -91,7 +91,7 @@ necessary."
                      (,dump-bits br amount)))
                  result)))
 
-         (define-fast-function ,flush-byte ((br ,type-name))
+         (define-fast-inline-function ,flush-byte ((br ,type-name))
            "Discards buffered bits in `br' before the next byte boundary. This function
 does NOT guarantee that bytewise I/O will be usable afterwards."
            ;; The buffer ends on a byte boundary, so skipping to the next byte
@@ -105,7 +105,7 @@ does NOT guarantee that bytewise I/O will be usable afterwards."
                 (:be `(setf (,buffer br) (ldb (byte (,bits-left br) 0) (,buffer br)))))
              nil))
 
-         (define-fast-function ,byte-source-usable-p ((br ,type-name))
+         (define-fast-inline-function ,byte-source-usable-p ((br ,type-name))
            ,(format nil
                     "Returns whether the underlying byte source can be safely used. This can be
 guaranteed by consuming at least ~d bits without a call to `~(~a~)ensure-bits'."

@@ -93,7 +93,7 @@
                              ((:reuse-ht ht) nil))
     (declare (type ht-codelen-vector lengths)
              (type array-length start end)
-             (optimize speed))
+             (optimize . #.*optimize-decls*))
     ;; One code of zero means that no distance codes are ever used. We actually
     ;; detect this before reading distance codes; the illegal tree is insurance.
     (if (and (= (+ start 1) end)
@@ -269,10 +269,7 @@
 
 ;;; Writes decompressed data into the buffer and returns the new fill pointer
 ;;; (but doesn't update it yet).
-(defun decode-huffman-data (ds dhi)
-  (declare (type deflate-state ds)
-           (type deflate-huffman-info dhi)
-           (optimize speed))
+(define-fast-function decode-huffman-data ((ds deflate-state) (dhi deflate-huffman-info))
   (let* ((litlen-tree  (dhi-litlen-tree  dhi))
          (dist-tree    (dhi-dist-tree    dhi))
          (special-mode (dhi-special-mode dhi))
@@ -287,13 +284,13 @@
              (type lsb-bit-reader lbr))
     (flet ((decode-length (index)
              (declare (type (index-for +deflate-length-bases+) index)
-                      (optimize speed))
+                      (optimize . #.*optimize-decls*))
              (+ (csvref +deflate-length-bases+ index)
                 (lbr-read-bits lbr (csvref +deflate-length-extra-bits+ index))))
 
            (decode-distance (dist-code)
              (declare (type (integer 0 31) dist-code)
-                      (optimize speed))
+                      (optimize . #.*optimize-decls*))
              (when (> dist-code 29)
                ;; See the remark before `lengths->dist-ht'.
                (ecase special-mode

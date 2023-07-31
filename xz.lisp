@@ -244,7 +244,7 @@
       (declare (type buffer buffer delta)
                (type octet pos)
                (type (integer 1 256) distance)
-               (optimize speed))
+               (optimize . #.*optimize-decls*))
       (let ((end (bs-read-sequence buffer bs)))
         (declare (type array-length end))
         (if (zerop end)

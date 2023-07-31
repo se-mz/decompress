@@ -26,7 +26,7 @@
            (declare (type array-length ,start end ,preserve)
                     (type (unsigned-byte 32) now-pos)
                     (type buffer buffer)
-                    (optimize speed))
+                    (optimize ,@*optimize-decls*))
            ;; Get the leftover data from last time into position
            (replace buffer buffer :end1 ,preserve :start2 (- end ,preserve))
            (setf ,start ,preserve)

@@ -61,7 +61,7 @@
       (die "Code starts out of range."))
     lrd))
 
-(define-fast-function lrd-normalize ((lrd lzma-range-decoder))
+(define-fast-inline-function lrd-normalize ((lrd lzma-range-decoder))
   ;; It is enough to read a single byte since only `lrd-decode-predicted-bit'
   ;; can lower `range'; see the comments in that function.
   (when (< (lrd-range lrd) (ash 1 24))
@@ -76,7 +76,7 @@
 ;;; Note that XZ Utils normalizes before reading, rather than after reading,
 ;;; which afaict has no real effect except complicating the EOF handling. We
 ;;; stick to the refimpl's scheme of normalizing after reading.
-(define-fast-function (lrd-decode-predicted-bit bit)
+(define-fast-inline-function (lrd-decode-predicted-bit bit)
     ((lrd lzma-range-decoder)
      (zero-prob-array lzma-probability-array)
      (index array-length))
@@ -106,7 +106,7 @@
 ;;; partial input, resulting in a total of 1 + 2 + 4 + ... + 2^(n-1) = 2^n - 1
 ;;; states. Padding with a dummy state at the begining simplifies addressing;
 ;;; the state for partial input xxxx is at index #b1xxxx.
-(define-fast-function (lrd-decode-predicted-be-bits (unsigned-byte 8))
+(define-fast-inline-function (lrd-decode-predicted-be-bits (unsigned-byte 8))
     ((lrd lzma-range-decoder)
      (zero-prob-array lzma-probability-array)
      (index array-length)
@@ -122,7 +122,7 @@
     (- m bound)))
 
 ;;; The refimpl implements this separately, but it makes little difference.
-(define-fast-function (lrd-decode-predicted-le-bits (unsigned-byte 5))
+(define-fast-inline-function (lrd-decode-predicted-le-bits (unsigned-byte 5))
     ((lrd lzma-range-decoder)
      (zero-prob-array lzma-probability-array)
      (index array-length)
@@ -158,7 +158,7 @@
 ;;; are different operations in the case where Range is odd.
 ;;;
 ;;; We use the branching version because it's clearer and about the same speed.
-(define-fast-function (lrd-decode-fixed-bits (unsigned-byte 26))
+(define-fast-inline-function (lrd-decode-fixed-bits (unsigned-byte 26))
     ((lrd lzma-range-decoder)
      (count (integer 1 26)))
   (let ((res 0))
@@ -231,7 +231,7 @@
 (deftype lzma-length ()
   `(integer 1 ,+lzma-max-expansion-length+))
 
-(define-fast-function (decode-lzma-length lzma-raw-length)
+(define-fast-inline-function (decode-lzma-length lzma-raw-length)
     ((lld lzma-length-decoder)
      (lrd lzma-range-decoder)
      (output-alignment (unsigned-byte 4)))
@@ -307,7 +307,7 @@
 (deftype lzma-distance-code ()
   '(integer 0 #xFFFFFFFF))
 
-(define-fast-function (decode-lzma-distance lzma-distance-code)
+(define-fast-inline-function (decode-lzma-distance lzma-distance-code)
     ((lrd lzma-range-decoder)
      (ldd lzma-distance-decoder)
      (raw-len lzma-raw-length))
@@ -481,7 +481,7 @@
                                                            (ash 1 (lzma-properties-lc props))
                                                            3 #x100))))
 
-(define-fast-function (decode-lzma-literal/match-case octet)
+(define-fast-inline-function (decode-lzma-literal/match-case octet)
     ((lrd lzma-range-decoder)
      (probs lzma-probability-array)
      (base-index array-length)
@@ -550,20 +550,18 @@
      ;; largest possible match fills up the buffer perfectly.
      1))
 
-(defun decode-lzma
-    (lrd props vars dict-size
-     buffer buffer-i
+(define-fast-function decode-lzma
+    ((lrd lzma-range-decoder)
+     (props lzma-properties)
+     (vars lzma-state-vars)
+     (dict-size (unsigned-byte 32))
+     (buffer buffer)
+     (buffer-i array-length)
      ;; The variable P described above.
-     max-buffer-i
+     (max-buffer-i array-length)
      ;; When size is known: `always', `never' or `maybe' have an EOF marker.
      ;; Ignored when size is unknown since that always needs an EOF marker.
-     eof-mode)
-  (declare (type lzma-range-decoder lrd)
-           (type (unsigned-byte 32) dict-size)
-           (type buffer buffer)
-           (type array-length buffer-i max-buffer-i)
-           (type (member :always :never :maybe) eof-mode)
-           (optimize speed))
+     (eof-mode (member :always :never :maybe)))
   (let* ((rep0 (lzsv-rep0 vars))
          (rep1 (lzsv-rep1 vars))
          (rep2 (lzsv-rep2 vars))
@@ -589,7 +587,7 @@
     (labels ((handle-match (length distance)
                (declare (type lzma-distance distance)
                         (type lzma-length length)
-                        (optimize speed))
+                        (optimize . #.*optimize-decls*))
                (unless (<= distance dict-size)
                  (die "Match extends beyond dictionary size."))
                (unless (<= distance buffer-i)
@@ -648,7 +646,7 @@
                       (die "Neither range decoder nor marker denote an end.")))))
 
              (decode-literal ()
-               (declare (optimize speed))
+               (declare (optimize . #.*optimize-decls*))
                (let* ((literal-probs (lzsv-literal-probs vars))
                       (previous-byte (if (zerop buffer-i)
                                          0

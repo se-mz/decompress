@@ -81,7 +81,7 @@
 (defmacro define-huffman-reader-function
     (function-name bit-reader-type prefix endianness)
   (with-prefixed-names (ensure-bits dump-bits peek-bits) prefix
-    `(define-fast-function (,function-name ht-item)
+    `(define-fast-inline-function (,function-name ht-item)
          ((br ,bit-reader-type) (ht huffman-tree))
        (macrolet ((with-entry ((index len) &body body)
                     (with-gensyms (entry)
@@ -112,7 +112,7 @@
 (define-huffman-reader-function ht-read-le-code lsb-bit-reader lbr- :le)
 (define-huffman-reader-function ht-read-be-code msb-bit-reader mbr- :be)
 
-(define-fast-function (reverse-small-integer (unsigned-byte 16))
+(define-fast-inline-function (reverse-small-integer (unsigned-byte 16))
     ((x (unsigned-byte 16)) (n (integer 0 16)))
   ;; Reverse as 16-bit integer first using a standard trick, then fix up for n.
   (setf x (logior (ash (logand x #b1111111100000000) -8)
@@ -198,7 +198,7 @@
           (next-code 0))
       (declare (type (simple-array ht-entry (*)) table)
                (type (integer 0 #.(expt 2 +huffman-max-codelen+)) next-code)
-               (optimize speed))
+               (optimize . #.*optimize-decls*))
       (loop :for len :from min-codelen :to max-codelen :do
         ;; Extend code to `len' bits. For the first code this is a no-op.
         (setf next-code (ash next-code 1))

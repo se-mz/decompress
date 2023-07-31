@@ -59,11 +59,11 @@
 (defstruct (bzip2-rle1-state (:conc-name rle1-))
   (src-i 0) (reps 0) (last-b nil))
 
-(defun decode-bzip2-rle1 (src src-end dest state)
-  (declare (type buffer src dest)
-           (type array-length src-end)
-           (type bzip2-rle1-state state)
-           (optimize speed))
+(define-fast-function decode-bzip2-rle1
+    ((src buffer)
+     (src-end array-length)
+     (dest buffer)
+     (state bzip2-rle1-state))
   (let ((src-i  (rle1-src-i state))
         (reps   (rle1-reps state))
         (last-b (rle1-last-b state))
@@ -109,14 +109,14 @@
 ;;; grab an old version of bzip2; the current encoder no longer outputs such
 ;;; blocks. Compressing lots of /dev/zero output tends to produce them.
 
-(defun derandomize-bzip2-block (data data-end)
-  (declare (type buffer data)
-           (type array-length data-end))
-  (loop :for rand-i :from 0
+(define-fast-function derandomize-bzip2-block
+    ((data buffer)
+     (data-end array-length))
+  (loop :for rand-i :of-type array-length :from 0
         :for skip = (aref +bzip2-random-numbers+
                           (mod rand-i (length +bzip2-random-numbers+)))
         ;; The -2 is an artifact of the weird loop shape bzip2 uses for this.
-        :for data-i = (- skip 2) :then (+ data-i skip)
+        :for data-i :of-type array-length = (- skip 2) :then (+ data-i skip)
         :while (< data-i data-end)
         :do (setf (aref data data-i) (logxor 1 (aref data data-i)))))
 
@@ -134,11 +134,12 @@
 
 ;;; `data' is the input, `result' the output, `perm' is an auxillary array that
 ;;; can be preallocated.
-(defun decode-bzip2-bwt (data data-end origin-pointer perm result)
-  (declare (type buffer data result)
-           (type (simple-array bzip2-block-index (*)) perm)
-           (type array-length data-end origin-pointer)
-           (optimize speed))
+(define-fast-function decode-bzip2-bwt
+    ((data buffer)
+     (data-end array-length)
+     (origin-pointer array-length)
+     (perm (simple-array bzip2-block-index (*)))
+     (result buffer))
   (let ((cumm (make-array 256 :element-type 'array-length :initial-element 0))
         (n 0))
     (declare (type (simple-array array-length (*)) cumm)
@@ -171,10 +172,10 @@
 ;;; This step takes up about 25% of the runtime. The refimpl uses a less naive
 ;;; implementation which may be worth investigating at a later point.
 
-(defun decode-bzip2-mtf-in-place (data data-end symbols)
-  (declare (type buffer data symbols)
-           (type array-length data-end)
-           (optimize speed))
+(define-fast-function decode-bzip2-mtf-in-place
+    ((data buffer)
+     (data-end array-length)
+     (symbols buffer))
   ;; We don't need `symbols' after this, but mutating it seems counterintuitive.
   (let ((stack (make-array 256 :element-type 'octet :initial-element 0)))
     (declare (dynamic-extent stack)
@@ -218,15 +219,15 @@
     (floor (log (+ +bzip2-max-block-size+ 1) 2))))
 
 ;;; Returns the number of elements written to `dest'.
-(defun decode-bzip2-huffman+rle2 (mbr dest trees selectors symbol-count)
-  (declare (type msb-bit-reader mbr)
-           (type buffer dest selectors)
-           (type simple-vector trees)
-           ;; Blocks without symbols are necessarily empty. It makes no sense to
-           ;; generate these because an empty file doesn't require any blocks at
-           ;; all; the refimpl rejects blocks without symbols and so do we.
-           (type (integer 1 256) symbol-count)
-           (optimize speed))
+(define-fast-function decode-bzip2-huffman+rle2
+    ((mbr msb-bit-reader)
+     (dest buffer)
+     (trees simple-vector)
+     (selectors buffer)
+     ;; Blocks without symbols are necessarily empty. It makes no sense to
+     ;; generate these because an empty file doesn't require any blocks at all;
+     ;; the refimpl rejects blocks without symbols and so do we.
+     (symbol-count (integer 1 256)))
   (let ((dest-i 0)
         ;; How many A/B codes we read in a row so far.
         (ab-length 0)
