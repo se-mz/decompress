@@ -71,6 +71,9 @@
     (unless (< (lrd-code lrd) (lrd-range lrd))
       (die "Code goes out of range."))))
 
+;;; See below.
+#+ecl (assert (typep (expt 2 18) 'array-length))
+
 ;;; Reads a bit using a prediction state and then updates that state. This
 ;;; function makes up the core of LZMA and takes up some 40%-50% of total time.
 ;;; Note that XZ Utils normalizes before reading, rather than after reading,
@@ -80,27 +83,36 @@
     ((lrd lzma-range-decoder)
      (zero-prob-array lzma-probability-array)
      (index array-length))
-  (let* ((zero-prob (aref zero-prob-array index))
-         ;; Stays within 32 bits because zero-prob < 2^11; the lowest possible
-         ;; value is 31 * 2^13. As a result, the lowest possible value for
-         ;; `range' after updating is 31 * 2^13 = 2^18 - 2^13 >= 2^16, so a
-         ;; single `lrd-normalize' call is enough to get above 2^24 again.
-         (first-1-code (* zero-prob (ash (lrd-range lrd) -11))))
-    (declare (type (unsigned-byte 32) first-1-code)
-             (type lzma-probability zero-prob))
-    (prog1 (if (>= (lrd-code lrd) first-1-code)
-               (progn
-                 (decf (lrd-range lrd) first-1-code)
-                 (decf (lrd-code lrd) first-1-code)
-                 (decf (aref zero-prob-array index)
-                       (ash zero-prob -5))
-                 1)
-               (progn
-                 (setf (lrd-range lrd) first-1-code)
-                 (incf (aref zero-prob-array index)
-                       (ash (- (ash 1 11) zero-prob) -5))
-                 0))
-      (lrd-normalize lrd))))
+  ;; This bizarre contortion speeds up decompression under ECL-21.2.1 by 2.1x.
+  ;; Due to the way we calculate indices, ECL would usually generate checks that
+  ;; the index is really an array-length for every single call. By tracing
+  ;; through callers, it is easy to verify that the index is always an
+  ;; array-length; the highest values go back to `decode-literal' within
+  ;; `decode-lzma' and are bounded by 2^18. As you can see, the rest of the body
+  ;; is compiled under normal settings.
+  #+ecl (declare (optimize (safety 0)))
+  (locally (declare (optimize . #.*optimize-decls*))
+    (let* ((zero-prob (aref zero-prob-array index))
+           ;; Stays within 32 bits because zero-prob < 2^11; the lowest possible
+           ;; value is 31 * 2^13. As a result, the lowest possible value for
+           ;; `range' after updating is 31 * 2^13 = 2^18 - 2^13 >= 2^16, so a
+           ;; single `lrd-normalize' call is enough to get above 2^24 again.
+           (first-1-code (* zero-prob (ash (lrd-range lrd) -11))))
+      (declare (type (unsigned-byte 32) first-1-code)
+               (type lzma-probability zero-prob))
+      (prog1 (if (>= (lrd-code lrd) first-1-code)
+                 (progn
+                   (decf (lrd-range lrd) first-1-code)
+                   (decf (lrd-code lrd) first-1-code)
+                   (decf (aref zero-prob-array index)
+                         (ash zero-prob -5))
+                   1)
+                 (progn
+                   (setf (lrd-range lrd) first-1-code)
+                   (incf (aref zero-prob-array index)
+                         (ash (- (ash 1 11) zero-prob) -5))
+                   0))
+        (lrd-normalize lrd)))))
 
 ;;; When reading multiple bits at a time, we have a prediction state for each
 ;;; partial input, resulting in a total of 1 + 2 + 4 + ... + 2^(n-1) = 2^n - 1
