@@ -34,8 +34,8 @@ display correctly there. On Quicklisp, the corresponding system is called
 
 - *Performance*: To my knowledge, this is the second fastest Deflate decoder and
   the fastest bzip2 decoder in pure Common Lisp. Under SBCL, file-to-file
-  decompression usually hits 30-80% the speed of the C reference
-  implementations, depending on the format. Among CL libraries, we're only
+  decompression usually hits 30%-80% the speed of the C reference
+  implementations (depending on the format) and among CL libraries, we're only
   beaten by 3bz. See [[#performance][the performance section]] for more details and other CL
   implementations.
 
@@ -72,23 +72,24 @@ The other libraries under consideration are [[https://github.com/sharplispers/ch
 popular library; [[https://github.com/pmai/Deflate][deflate]], a compact implementation by Pierre Mai that is notably
 used by Quicklisp; and [[https://github.com/3b/3bz][3bz]], which is notably used by pngload.
 
-|                           | semz.decompress-1.1.0            | chipz-20230418                                        | deflate-1.0.1 (Mai)                       | 3bz-20230408                                               |
-|---------------------------+----------------------------------+-------------------------------------------------------+-------------------------------------------+------------------------------------------------------------|
-| /                         | <                                |                                                       |                                           |                                                            |
-| supported formats         | deflate, zlib, gzip, bzip2       | deflate, zlib, gzip, bzip2                            | deflate, zlib, gzip                       | deflate, zlib, gzip                                        |
-| dependencies              | alexandria, trivial‑gray‑streams | -                                                     | -                                         | alexandria, trivial‑features, nibbles, babel, cffi¹, mmap¹ |
-| license                   | MIT                              | BSD‑3                                                 | MIT + BSD‑3's no-advertising clause       | MIT                                                        |
-|---------------------------+----------------------------------+-------------------------------------------------------+-------------------------------------------+------------------------------------------------------------|
-| input sources             | vector, stream                   | simple specialized vector, list, stream, pathname     | stream                                    | (s. s.) vector, stream, foreign memory                     |
-| output destinations       | new vector                       | new vector, provided (s. s.) vector, stream, pathname | stream                                    | (s. s.) vector                                             |
-| Gray stream wrapper       | yes                              | only around other streams                             | no                                        | no                                                         |
-| checksum verification     | automatic                        | automatic                                             | automatic if enabled, disabled by default | automatic                                                  |
-|---------------------------+----------------------------------+-------------------------------------------------------+-------------------------------------------+------------------------------------------------------------|
-| [[#edge-cases][edge case handling]]        | very strict                      | lenient                                               | lenient, some oversights                  | strict, no library error type                              |
-| partial input             | library error                    | library error                                         | ~end-of-file~ error                       | status flag                                                |
-| trailing data             | ignored, not read by default     | ignored, may be read                                  | ignored, never read                       | ignored; not read with stream input                        |
-| preset zlib dictionaries  | supported                        | unsupported                                           | unsupported                               | unsupported                                                |
-| bzip2 block randomization | supported                        | unsupported                                           | n/a                                       | n/a                                                        |
+|                           | decompress-1.2.0                            | chipz-20230418                                        | deflate-1.0.4                             | 3bz-20230521                                               |
+|---------------------------+---------------------------------------------+-------------------------------------------------------+-------------------------------------------+------------------------------------------------------------|
+| /                         | <                                           |                                                       |                                           |                                                            |
+| supported formats         | deflate, zlib, gzip, bzip2, lzma, lzma2, xz | deflate, zlib, gzip, bzip2                            | deflate, zlib, gzip                       | deflate, zlib, gzip                                        |
+| dependencies              | alexandria, trivial‑gray‑streams            | -                                                     | -                                         | alexandria, trivial‑features, nibbles, babel, cffi¹, mmap¹ |
+| license                   | MIT                                         | BSD‑3                                                 | MIT                                       | MIT                                                        |
+|---------------------------+---------------------------------------------+-------------------------------------------------------+-------------------------------------------+------------------------------------------------------------|
+| input sources             | vector, stream                              | simple specialized vector, list, stream, pathname     | stream                                    | (s. s.) vector, stream, foreign memory                     |
+| output destinations       | new vector                                  | new vector, provided (s. s.) vector, stream, pathname | stream                                    | (s. s.) vector                                             |
+| Gray stream wrapper       | yes                                         | only around other streams                             | no                                        | no                                                         |
+| checksum verification     | automatic                                   | automatic                                             | automatic if enabled, disabled by default | automatic                                                  |
+| multi-member handling     | manual or automatic                         | single-only                                           | manual                                    | manual                                                     |
+|---------------------------+---------------------------------------------+-------------------------------------------------------+-------------------------------------------+------------------------------------------------------------|
+| [[#edge-cases][edge case handling]]        | strict                                      | lenient                                               | lenient                                   | strict, no library error type                              |
+| partial input             | library error                               | library error                                         | ~end-of-file~ error                       | status flag                                                |
+| trailing data             | ignored & unread, or library error          | ignored & read                                        | ignored & unread                          | ignored; not read with stream input                        |
+| preset zlib dictionaries  | supported                                   | unsupported                                           | unsupported                               | unsupported                                                |
+| bzip2 block randomization | supported                                   | unsupported                                           | n/a                                       | n/a                                                        |
 
 ¹ Optional depending on implementation.
 
@@ -157,7 +158,7 @@ Deviations from zlib behavior are *boldfaced* for convenience; note that
 deviation is not necessarily a bad thing in itself. We consider internal errors
 deviation since they may cause behavior changes under some implementations.
 
-| edge case                                                      | zlib (zpipe) | semz           | 3bz              | Mai                       | chipz          |
+| edge case                                                      | zlib (zpipe) | decompress     | 3bz              | deflate                   | chipz          |
 |----------------------------------------------------------------+--------------+----------------+------------------+---------------------------+----------------|
 | /                                                              | <            |                |                  |                           |                |
 | reserved block type                                            | error        | error          | basic error      | error                     | error          |
@@ -166,7 +167,7 @@ deviation since they may cause behavior changes under some implementations.
 | uncompressed zero-length block with wrong checksum             | error        | error          | basic error      | error                     | *outputs data* |
 | reference goes beyond previous output                          | error        | error          | basic error      | *outputs data*            | *outputs data* |
 | uses illegal length code 286/287                               | error        | error          | basic error      | error                     | error          |
-| uses illegal distance code 30/31                               | error        | error          | basic error      | *longer range than 29*    | error          |
+| uses illegal distance code 30/31                               | error        | error          | basic error      | error                     | error          |
 |----------------------------------------------------------------+--------------+----------------+------------------+---------------------------+----------------|
 | dynamic block provides encodings for 286/287 & 30/31           | error        | *outputs data* | *internal error* | *outputs data*            | *outputs data* |
 | dynamic block with one distance code (§3.2.7)                  | handled      | handled        | handled          | handled                   | handled        |
@@ -177,8 +178,8 @@ deviation since they may cause behavior changes under some implementations.
 | Huffman tree with too few items                                | error        | error          | basic error      | *outputs data*            | *outputs data* |
 | Huffman tree with too few items, uses an unassigned code       | n/a          | n/a            | n/a              | error                     | error          |
 | dynamic block has code lengths expand across len/dist boundary | handled      | handled        | handled          | handled                   | handled        |
-| dynamic block has code lengths expand out of bounds            | error        | error          | basic error      | *internal error*          | error          |
-| dynamic block starts by repeating the last code length         | error        | error          | basic error      | *internal error*          | error          |
+| dynamic block has code lengths expand out of bounds            | error        | error          | basic error      | error                     | error          |
+| dynamic block starts by repeating the last code length         | error        | error          | basic error      | error                     | error          |
 |----------------------------------------------------------------+--------------+----------------+------------------+---------------------------+----------------|
 | reference stays in bounds but goes beyond zlib window size     | outputs data | *error*        | outputs data     | outputs data              | outputs data   |
 | zlib preset dictionary required but none provided              | error        | error          | basic error      | error                     | *outputs data* |
@@ -359,14 +360,24 @@ suite as well.
 :CUSTOM_ID: performance
 :END:
 
-*** Summary
-:PROPERTIES:
-:CUSTOM_ID: performance
-:END:
-
 We're usually the fastest with a significant improvement over chipz; under SBCL,
-3bz is slightly faster for gzip data and noticeably faster for zlib data.
-Disabling overreads hurts a lot for Deflate but not much for bzip2.
+3bz is slightly faster for gzip data and noticeably faster for zlib data. Under
+ABCL, Mai's Deflate is faster. Preserving trailing data hurts a lot for Deflate
+but not much for the other formats.
+
+| comparison implementation |     SBCL      |     CCL     |     ECL     |     ABCL      |
+|---------------------------+---------------+-------------+-------------+---------------|
+| /                         |      <c>      |     <c>     |     <c>     |      <c>      |
+| /                         |       <       |             |             |               |
+| chipz (deflate/zlib/gzip) |  1.77x-2.78x  | 1.39x-1.88x | 1.61x-2.30x |  1.12x-3.52x  |
+| chipz (bzip2)             |  1.31x-1.88x  | 2.04x-2.78x | 2.17x-2.47x |  2.46x-7.80x  |
+| deflate (with checksum)   |  2.03x-3.57x  | 1.33x-3.91x | 1.87x-3.24x | *0.34x-0.94x* |
+| deflate (no checksum)     |  1.34x-3.31x  | 1.23x-1.71x | 1.75x-2.09x | *0.32x-0.93x* |
+| 3bz                       | *0.63x-0.96x* | 1.07x-1.54x | 2.12x-7.23x |  1.03x-3.45x  |
+|---------------------------+---------------+-------------+-------------+---------------|
+| zlib                      |  0.31x-0.54x  | 0.04x-0.12x | 1.00%-2.65% |  0.18%-0.26%  |
+| bzip2                     |  0.65x-0.81x  | 0.19x-0.22x | 4.15%-5.39% |  1.06%-2.16%  |
+| xz                        |  0.49x-0.62x  | 0.10x-0.17x | 1.04%-1.69% |  0.21%-0.41%  |
 
 
 
@@ -379,8 +390,10 @@ The performance measurements below are taken on an older x86-64 machine, taking
 the best of five attempts, using each library's idiomatic method of file-to-file
 decompression:
 
-- For semz.decompress, this means ~with-open-file~ + Alexandria's ~copy-stream~.
-  We provide measurements with and without overreads enabled.
+- For decompress, this means ~with-open-file~ + Alexandria's ~copy-stream~. We
+  provide measurements for both single member decompression and multiple member
+  decompression. (None of the benchmark files contain multiple members; this
+  merely demonstrates the performance loss when preserving trailing data.)
 
 - For chipz, this means ~decompress~ with pathname arguments.
 
@@ -392,32 +405,46 @@ decompression:
   provide a measurement with the significantly slower stream input interface
   since it wouldn't be very informative.
 
-I tried to keep the benchmark files varied since decompression benchmarks
-(especially for Deflate, not so much for bzip2) are highly input-dependent, but
-take the results with a grain of salt regardless. As a rough baseline,
-measurements with zlib-1.2.13, GNU gzip-1.12, and bzip2-1.0.8 are provided,
-respectively using the canonical ~zpipe~ example program, ~gunzip~, and
-~bunzip2~.
+We always use the implementation's default optimization settings. Note that
+under ECL, one library's declamations can easily affect the optimization
+settings other libraries are compiled under; special care was taken to use ECL's
+default ~((safety 2) (space 0) (speed 3) (debug 3))~ for all libraries.
 
-| file                       |   input size |  output size |   zlib |   gzip |  bzip2 | notes                                    |
-|----------------------------+--------------+--------------+--------+--------+--------+------------------------------------------|
-| /                          |            < |            > |      < |        |      > |                                          |
-|                            |          <r> |          <r> |    <r> |    <r> |    <r> |                                          |
-| openjdk‑17.0.6_p10.tar.gz  | 105,221,267B | 672,163,840B | 2.618s | 4.122s |      - | Big tarball with high compression ratio. |
-| openh264‑2.3.1.tar.gz      |  60,290,897B |  73,205,760B | 0.280s | 0.554s |      - | Big tarball with low compression ratio.  |
-| gimp‑2.10.32.tar.bz2       |  31,397,425B | 207,185,920B |      - |      - | 6.687s | Big bzip2 tarball.                       |
-| ccl‑1.12.1‑linuxx86.tar.gz |  20,872,508B |  80,752,640B | 0.427s | 0.675s |      - | A tarball with text and executable data. |
-| sbcl‑2.3.3-source.tar.bz2  |   7,408,264B |  43,386,880B |      - |      - | 1.408s | It's SBCL.                               |
-| [[https://semelz.de/files/html_standard.html.gz][html_standard.html.gz]]      |   1,872,784B |  12,803,512B | 0.053s | 0.081s |      - | Gzipped HTML as you'd find online.       |
-| [[https://semelz.de/files/html_standard.html.bz2][html_standard.html.bz2]]     |   1,335,667B |  12,803,512B |      - |      - | 0.373s | Bzip2 version of the above file.         |
-| [[https://semelz.de/files/pepper.z][pepper.z]]                   |   2,132,583B |  51,268,000B | 0.148s |      - |      - | Pixel data of a [[https://semelz.de/files/pepper.png][very compressible PNG]].   |
-| [[https://semelz.de/files/pepper.bz2][pepper.bz2]]                 |   1,616,871B |  51,268,000B |      - |      - | 0.512s | Bzip2 version of the above file.         |
-| [[https://semelz.de/files/mario.z][mario.z]]                    |     888,470B |   3,053,378B | 0.018s |      - |      - | Pixel data of a [[https://semelz.de/files/mario.png][badly compressible PNG]].  |
-| [[https://semelz.de/files/mario.bz2][mario.bz2]]                  |     692,856B |   3,053,378B |      - |      - | 0.110s | Bzip2 version of the above file.         |
+I tried to keep the benchmark files varied since decompression benchmarks can
+highly input-dependent, but take the results with a grain of salt regardless. As
+a rough baseline, measurements with zlib-1.2.13, bzip2-1.0.8, and xz-5.4.2 are
+provided, respectively using the canonical ~zpipe~ example program, ~bunzip2~,
+and ~xz~.
+
+We use the following real world tarballs:
+
+| file                       |   input size |  output size | refimpl |
+|----------------------------+--------------+--------------+---------|
+| /                          |            < |              |         |
+|                            |          <r> |          <r> |     <r> |
+| openjdk‑17.0.6_p10.tar.gz  | 105,221,267B | 672,163,840B |  2.618s |
+| openh264‑2.3.1.tar.gz      |  60,290,897B |  73,205,760B |  0.280s |
+| gimp‑2.10.32.tar.bz2       |  31,397,425B | 207,185,920B |  6.687s |
+| gcc‑11.3.0.tar.xz          |  81,141,364B | 824,309,760B |  7.263s |
+| ccl‑1.12.1‑linuxx86.tar.gz |  20,872,508B |  80,752,640B |  0.427s |
+| sbcl‑2.3.3-source.tar.bz2  |   7,408,264B |  43,386,880B |  1.408s |
+| Python‑3.11.4.tar.xz       |  19,954,828B |  99,696,640B |  1.618s |
+
+We also have a bunch of example data that we use to emulate common use cases.
+~html_standard.html~ is HTML as you'd commonly find it on the web; ~pepper.dat~
+and ~mario.dat~ are PNG pixel data from a [[https://semelz.de/files/pepper.png][well-compressible]] and
+and [[https://semelz.de/files/mario.png][badly-compressible]] image respectively.
+
+| base file          | base size | zlib (.z) | bzip2 (.bz2) | xz (.lzma) | xz (.xz) |
+|--------------------+-----------+-----------+--------------+------------+----------|
+| /                  |           | <         |              |            |          |
+| html_standard.html | 12.80MB   | [[https://semelz.de/files/html_standard.html.z][0.053s]]    | [[https://semelz.de/files/html_standard.html.bz2][0.373s]]       | [[https://semelz.de/files/html_standard.html.lzma][0.115s]]     | [[https://semelz.de/files/html_standard.html.xz][0.121s]]   |
+| pepper.dat         | 51.27MB   | [[https://semelz.de/files/pepper.z][0.148s]]    | [[https://semelz.de/files/pepper.bz2][0.512s]]       | [[https://semelz.de/files/pepper.lzma][0.238s]]     | [[https://semelz.de/files/pepper.xz][0.262s]]   |
+| mario.dat          | 3.053MB   | [[https://semelz.de/files/mario.z][0.018s]]    | [[https://semelz.de/files/mario.bz2][0.110s]]       | [[https://semelz.de/files/mario.lzma][0.065s]]     | [[https://semelz.de/files/mario.xz][0.070s]]   |
 
 
 
-*** SBCL-2.3.3
+*** SBCL-2.3.5
 :PROPERTIES:
 :CUSTOM_ID: performance-sbcl
 :END:
@@ -425,21 +452,29 @@ respectively using the canonical ~zpipe~ example program, ~gunzip~, and
 SBCL is unsurprisingly the fastest of the tested implementations. We primarily
 optimize for it; notably we use a different implementation of the various CRCs.
 
-| file                       |    3bz | semz (O) |   semz |  chipz |    Mai | Mai (C) |
-|----------------------------+--------+----------+--------+--------+--------+---------|
-| /                          |      < |          |        |        |        |         |
-|                            |    <r> |      <r> |    <r> |    <r> |    <r> |     <r> |
-| openjdk-17.0.6_p10.tar.gz  | 5.665s |   6.257s | 8.079s | 13.84s | 12.17s |  14.36s |
-| openh264-2.3.1.tar.gz      | 0.878s |   0.910s | 1.349s | 1.538s | 3.032s |  3.271s |
-| gimp-2.10.32.tar.bz2       |      - |   9.909s | 10.45s | 14.31s |      - |       - |
-| ccl-1.12.1-linuxx86.tar.gz | 0.957s |   1.081s | 1.441s | 2.166s | 2.308s |  2.567s |
-| sbcl-2.3.3-source.tar.bz2  |      - |   2.010s | 2.154s | 3.519s |      - |       - |
-| html_standard.html.gz      | 0.104s |   0.117s | 0.148s | 0.259s | 0.221s |  0.260s |
-| html_standard.html.bz2     |      - |   0.576s | 0.599s | 0.764s |      - |       - |
-| pepper.z                   | 0.173s |   0.264s | 0.302s | 0.781s | 0.413s |  0.707s |
-| pepper.bz2                 |      - |   0.704s | 0.734s | 1.040s |      - |       - |
-| mario.z                    | 0.033s |   0.039s | 0.055s | 0.092s | 0.097s |  0.114s |
-| mario.bz2                  |      - |   0.134s | 0.147s | 0.259s |      - |       - |
+| file                       | refimpl |    3bz | decom (M) | decom (S) |  chipz |   defl | defl (C) |
+|----------------------------+---------+--------+-----------+-----------+--------+--------+----------|
+| /                          |         |      < |           |           |        |        |          |
+|                            |     <r> |    <r> |       <r> |       <r> |    <r> |    <r> |      <r> |
+| openjdk-17.0.6_p10.tar.gz  |  2.618s | 5.661s |    6.166s |    7.935s | 13.75s | 10.34s |   12.49s |
+| openh264-2.3.1.tar.gz      |  0.280s | 0.858s |    0.893s |    1.341s | 1.580s | 2.956s |   3.185s |
+| gimp-2.10.32.tar.bz2       |  6.687s |      - |    9.897s |    10.48s | 14.09s |      - |        - |
+| gcc-11.3.0.tar.xz          |  7.263s |      - |    14.90s |    14.92s |      - |      - |        - |
+| ccl-1.12.1-linuxx86.tar.gz |  0.427s | 0.952s |    1.058s |    1.416s | 2.164s | 2.013s |   2.267s |
+| sbcl-2.3.3-source.tar.bz2  |  1.408s |      - |    2.017s |    2.152s | 3.517s |      - |        - |
+| Python-3.11.4.tar.xz       |  1.618s |      - |    3.093s |    3.083s |      - |      - |        - |
+| html_standard.html.z       |  0.053s | 0.076s |    0.110s |    0.143s | 0.273s | 0.185s |   0.259s |
+| pepper.z                   |  0.148s | 0.174s |    0.276s |    0.313s | 0.767s | 0.369s |   0.664s |
+| mario.z                    |  0.018s | 0.033s |    0.040s |    0.056s | 0.091s | 0.083s |   0.100s |
+| html_standard.html.bz2     |  0.373s |      - |    0.576s |    0.600s | 0.757s |      - |        - |
+| pepper.bz2                 |  0.512s |      - |    0.705s |    0.734s | 1.025s |      - |        - |
+| mario.bz2                  |  0.110s |      - |    0.135s |    0.147s | 0.254s |      - |        - |
+| html_standard.html.lzma    |  0.115s |      - |    0.185s |    0.205s |      - |      - |        - |
+| pepper.lzma                |  0.238s |      - |    0.384s |    0.415s |      - |      - |        - |
+| mario.lzma                 |  0.065s |      - |    0.107s |    0.119s |      - |      - |        - |
+| html_standard.html.xz      |  0.121s |      - |    0.221s |    0.221s |      - |      - |        - |
+| pepper.xz                  |  0.262s |      - |    0.529s |    0.529s |      - |      - |        - |
+| mario.xz                   |  0.070s |      - |    0.117s |    0.117s |      - |      - |        - |
 
 
 
@@ -451,25 +486,36 @@ optimize for it; notably we use a different implementation of the various CRCs.
 CCL has notoriously slow bit operations, resulting in an overall 6.5x runtime
 for Deflate decompression compared to SBCL and less pronounced differences
 between libraries. This is apparently being taken care of currently and I'd
-expect performance to change drastically once these fixes land. Bzip2 runtime is
-about 3x that of SBCL, which is pretty typical.
+expect performance to change drastically once these fixes land. Preserving
+trailing data makes almost no difference.
 
-| file                       |    3bz | semz (O) |   semz |  chipz |    Mai | Mai (C) |
-|----------------------------+--------+----------+--------+--------+--------+---------|
-| /                          |      < |          |        |        |        |         |
-|                            |    <r> |      <r> |    <r> |    <r> |    <r> |     <r> |
-| openjdk-17.0.6_p10.tar.gz  | 54.03s |   36.34s | 38.86s | 64.15s | 56.73s |  62.89s |
-| openh264-2.3.1.tar.gz      | 7.060s |   6.372s | 6.860s | 9.886s | 10.00s |  10.65s |
-| gimp-2.10.32.tar.bz2       |      - |   31.99s | 33.04s | 71.84s |      - |       - |
-| ccl-1.12.1-linuxx86.tar.gz | 8.727s |   6.950s | 7.040s | 10.15s | 9.494s |  10.20s |
-| sbcl-2.3.3-source.tar.bz2  |      - |   6.439s | 6.675s | 17.91s |      - |       - |
-| html_standard.html.gz      | 1.035s |   0.712s | 0.726s | 1.216s | 1.054s |  1.164s |
-| html_standard.html.bz2     |      - |   1.720s | 1.774s | 3.713s |      - |       - |
-| pepper.z                   | 1.922s |   1.300s | 1.329s | 2.317s | 2.599s |  5.348s |
-| pepper.bz2                 |      - |   2.306s | 2.368s | 4.656s |      - |       - |
-| mario.z                    | 0.298s |   0.279s | 0.286s | 0.366s | 0.378s |  0.547s |
-| mario.bz2                  |      - |   0.461s | 0.487s | 1.295s |      - |       - |
+Bzip2 and LZMA runtimes are about 3-4x those of SBCL, which is pretty typical.
+XZ runtimes suffer from CCL's weakness around 64-bit arithmetic, as required by
+CRC-64.
 
+| file                       |    3bz | decom (M) | decom (S) |  chipz |   defl | defl (C) |
+|----------------------------+--------+-----------+-----------+--------+--------+----------|
+| /                          |      < |           |           |        |        |          |
+|                            |    <r> |       <r> |       <r> |    <r> |    <r> |      <r> |
+| openjdk-17.0.6_p10.tar.gz  | 53.40s |    37.66s |    39.09s | 64.60s | 48.82s |   54.33s |
+| openh264-2.3.1.tar.gz      | 7.071s |    6.584s |    6.777s | 10.07s | 9.573s |   10.29s |
+| gimp-2.10.32.tar.bz2       |      - |    34.72s |    35.31s | 72.54s |      - |        - |
+| gcc-11.3.0.tar.xz          |      - |    68.40s |    68.40s |      - |      - |        - |
+| ccl-1.12.1-linuxx86.tar.gz | 8.634s |    6.820s |    7.174s | 10.23s | 8.390s |   9.044s |
+| sbcl-2.3.3-source.tar.bz2  |      - |    6.454s |    6.860s | 17.92s |      - |        - |
+| Python-3.11.4.tar.xz       |      - |    13.26s |    13.15s |      - |      - |        - |
+| html_standard.html.z       | 0.828s |    0.646s |    0.681s | 0.963s | 0.902s |   1.565s |
+| pepper.z                   | 1.903s |    1.232s |    1.248s | 2.315s | 2.110s |   4.816s |
+| mario.z                    | 0.293s |    0.270s |    0.286s | 0.376s | 0.344s |   0.504s |
+| html_standard.html.bz2     |      - |    1.715s |    1.787s | 3.757s |      - |        - |
+| pepper.bz2                 |      - |    2.349s |    2.390s | 4.798s |      - |        - |
+| mario.bz2                  |      - |    0.503s |    0.515s | 1.288s |      - |        - |
+| html_standard.html.lzma    |      - |    0.698s |    0.731s |      - |      - |        - |
+| pepper.lzma                |      - |    1.416s |    1.454s |      - |      - |        - |
+| mario.lzma                 |      - |    0.429s |    0.442s |      - |      - |        - |
+| html_standard.html.xz      |      - |    1.015s |    1.020s |      - |      - |        - |
+| pepper.xz                  |      - |    2.598s |    2.610s |      - |      - |        - |
+| mario.xz                   |      - |    0.510s |    0.507s |      - |      - |        - |
 
 
 *** ECL-21.2.1
@@ -477,21 +523,30 @@ about 3x that of SBCL, which is pretty typical.
 :CUSTOM_ID: performance-ecl
 :END:
 
-Deflate decompression sits at some 40x-50x the runtime of SBCL, which is rough,
+Deflate decompression sits at some 25x-50x the runtime of SBCL, which is rough,
 but still usable for smaller data. Bzip2 ends up at a nicer 20x-30x runtime.
+LZMA/XZ decompression suffers from heavy type check overhead and is slower than
+bzip2 as a result.
 
-| file                       | 3bz    | semz (O) |   semz |  chipz |    Mai | Mai (C) |
-|----------------------------+--------+----------+--------+--------+--------+---------|
-| /                          | <      |          |        |        |        |         |
-|                            |        |      <r> |    <r> |    <r> |    <r> |     <r> |
-| ccl-1.12.1-linuxx86.tar.gz | 129.6s |   46.38s | 63.75s | 81.26s | 89.83s |  91.14s |
-| sbcl-2.3.3-source.tar.bz2  | -      |   45.80s | 51.20s | 76.42s |      - |       - |
-| html_standard.html.gz      | 18.23s |   4.477s | 5.986s | 8.852s | 8.606s |  8.826s |
-| html_standard.html.bz2     | -      |   11.12s | 12.11s | 16.59s |      - |       - |
-| pepper.z                   | 41.67s |   7.495s | 9.221s | 13.81s | 15.23s |  21.56s |
-| pepper.bz2                 | -      |   15.32s | 16.53s | 24.24s |      - |       - |
-| mario.z                    | 3.906s |   1.987s | 2.703s | 3.036s | 3.847s |  4.223s |
-| mario.bz2                  | -      |   3.900s | 4.480s | 5.643s |      - |       - |
+| file                       |    3bz | decom (M) | decom (S) |  chipz |   defl | defl (C) |
+|----------------------------+--------+-----------+-----------+--------+--------+----------|
+| /                          |      < |           |           |        |        |          |
+|                            |    <r> |       <r> |       <r> |    <r> |    <r> |      <r> |
+| ccl-1.12.1-linuxx86.tar.gz | 128.7s |    41.39s |    53.99s | 76.07s | 76.02s |   77.23s |
+| sbcl-2.3.3-source.tar.bz2  |      - |    30.60s |    34.43s | 75.46s |      - |        - |
+| Python-3.11.4.tar.xz       |      - |    155.4s |    156.2s |      - |      - |        - |
+| html_standard.html.z       | 16.27s |    3.901s |    4.938s | 6.539s | 6.845s |   8.401s |
+| pepper.z                   | 40.32s |    5.576s |    6.706s | 12.83s | 11.63s |   18.06s |
+| mario.z                    | 3.823s |    1.804s |    2.269s | 2.899s | 3.211s |   3.548s |
+| html_standard.html.bz2     |      - |    6.931s |    7.612s | 16.25s |      - |        - |
+| pepper.bz2                 |      - |    10.15s |    10.99s | 23.02s |      - |        - |
+| mario.bz2                  |      - |    2.652s |    3.038s | 5.764s |      - |        - |
+| html_standard.html.lzma    |      - |    8.427s |    9.199s |      - |      - |        - |
+| pepper.lzma                |      - |    14.06s |    15.26s |      - |      - |        - |
+| mario.lzma                 |      - |    5.468s |    5.886s |      - |      - |        - |
+| html_standard.html.xz      |      - |    10.28s |    10.33s |      - |      - |        - |
+| pepper.xz                  |      - |    21.72s |    21.67s |      - |      - |        - |
+| mario.xz                   |      - |    5.898s |    5.897s |      - |      - |        - |
 
 
 
@@ -500,24 +555,31 @@ but still usable for smaller data. Bzip2 ends up at a nicer 20x-30x runtime.
 :CUSTOM_ID: performance-abcl
 :END:
 
-ABCL can't deal with the bit diddling involved in Deflate all that well and is
-significantly slower than even ECL; you're likely better off just using
-~java.util.zip~ instead. Our bzip2 performance is not that far off the ECL
-measurements however. It should be noted that ABCL has a crazy overhead on
-Lisp-side buffering, which is avoided by semz.decompress through ABCL-specific
-declarations and by Mai's Deflate through not buffering at all. Note also that
-3bz cannot rely on mmap here.
+ABCL's ~replace~ and manual array ops are obscenely slow, which punishes copying
+and Lisp-side buffering. As a result, the straightforward unbuffered code of
+Mai's Deflate ends up being the fastest and all other Deflate implementations
+perform close to the point of unusability.
 
-| file                   |    3bz | semz (O) |   semz |  chipz |    Mai | Mai (C) |
-|------------------------+--------+----------+--------+--------+--------+---------|
-| /                      |      < |          |        |        |        |         |
-|                        |    <r> |      <r> |    <r> |    <r> |    <r> |     <r> |
-| html_standard.html.gz  | 53.89s |   24.01s | 26.76s | 55.19s | 36.54s |  36.19s |
-| html_standard.html.bz2 |      - |   17.12s | 19.72s | 102.8s |      - |       - |
-| pepper.z               | 82.32s |   81.38s | 85.53s | 93.42s | 97.79s |  98.54s |
-| pepper.bz2             |      - |   47.75s | 51.13s | 120.7s |      - |       - |
-| mario.z                | 24.04s |   6.347s | 8.035s | 25.71s | 12.34s |  12.36s |
-| mario.bz2              |      - |   4.789s | 6.095s | 40.65s |      - |       - |
+Our bzip2/XZ performance isn't that bad compared to ECL, likely due to the lower
+amount of bit diddling; note however how harshly the runtime increases for the
+(highly-compressed, hence copy-heavy) ~pepper.dat~.
+
+| file                    |    3bz | decom (M) | decom (S) |  chipz |   defl | defl (C) |
+|-------------------------+--------+-----------+-----------+--------+--------+----------|
+| /                       |      < |           |           |        |        |          |
+|                         |    <r> |       <r> |       <r> |    <r> |    <r> |      <r> |
+| html_standard.html.z    | 52.78s |    23.54s |    26.76s | 55.66s | 17.30s |   17.61s |
+| pepper.z                | 85.46s |    83.13s |    97.38s | 92.91s | 26.50s |   28.65s |
+| mario.z                 | 24.25s |    7.021s |    8.783s | 24.68s | 6.506s |   6.598s |
+| html_standard.html.bz2  |      - |    17.76s |    20.84s | 101.3s |      - |        - |
+| pepper.bz2              |      - |    48.34s |    51.39s | 118.9s |      - |        - |
+| mario.bz2               |      - |    5.096s |    6.212s | 39.75s |      - |        - |
+| html_standard.html.lzma |      - |    32.36s |    35.23s |      - |      - |        - |
+| pepper.lzma             |      - |    111.3s |    117.8s |      - |      - |        - |
+| mario.lzma              |      - |    17.10s |    18.48s |      - |      - |        - |
+| html_standard.html.xz   |      - |    34.04s |    34.00s |      - |      - |        - |
+| pepper.xz               |      - |    117.1s |    116.5s |      - |      - |        - |
+| mario.xz                |      - |    16.95s |    16.97s |      - |      - |        - |
 
 
 
