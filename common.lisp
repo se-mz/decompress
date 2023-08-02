@@ -180,7 +180,15 @@ Even when the input is a stream, it is this condition which is signalled, not
      (check-type ,end array-length)
      (assert (<= 0 ,start ,end (length ,array)))))
 
-;;; I have been burned by nibbles before and I won't be again.
+;;; "Why not use nibbles?" - Because nibbles:
+;;;
+;;; 1. Has very brittle SBCL-specific code (this may change with sb-nibbles);
+;;;
+;;; 2. Is often slower than the naive code on anything other than SBCL;
+;;;
+;;; 3. Doesn't support 24-bit and 48-bit sizes.
+;;;
+;;; Why bother with a dependency in this case?
 (macrolet
     ((define-le-accessor (name octet-count)
        `(progn
