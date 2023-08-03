@@ -2,7 +2,7 @@
 ;;;
 ;;; XZ has a spec, which can be found here:
 ;;; https://github.com/tukaani-project/xz/tree/master/doc/xz-file-format.txt
-(in-package #:semz.decompress)
+(cl:in-package #:semz.decompress)
 
 ;;; XZ has extensible checksums; if you REALLY need to add your own, rebind this
 ;;; variable. I don't want to make it part of the public API but I also have no
