@@ -69,8 +69,8 @@
 ;; => signals a decompression-error
 
 ;; Unlike many other libraries, this one supports zlib preset dictionaries.
-(d:decompress :zlib #(120 249  0 79 0 42  3 34 0  0 79 0 42)
-              :dictionary (d:make-simple-zlib-dictionary '(#(1 33 7))))
+(d:decompress-all :zlib #(120 249  0 79 0 42  3 34 0  0 79 0 42)
+                  :dictionary (d:make-simple-zlib-dictionary '(#(1 33 7))))
 ;; => #(1 33 7), (:WINDOW-SIZE 32768 :LEVEL 3 :DICTIONARY 5177386)
 
 ;; These objects can be passed to specify the compression format.
