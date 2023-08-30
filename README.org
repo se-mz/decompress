@@ -361,23 +361,24 @@ suite as well.
 :END:
 
 We're usually the fastest with a significant improvement over chipz; under SBCL,
-3bz is slightly faster for gzip data and noticeably faster for zlib data. Under
-ABCL, Mai's Deflate is faster. Preserving trailing data hurts a lot for Deflate
-but not much for the other formats.
+3bz is slightly faster for gzip data and noticeably faster for zlib data.
+Preserving trailing data hurts a lot for Deflate but not much for the other
+formats. Under ABCL, Mai's Deflate is faster for heavily compressed files and
+preserving trailing data is rather expensive.
 
 | comparison implementation |     SBCL      |     CCL     |     ECL     |     ABCL      |
 |---------------------------+---------------+-------------+-------------+---------------|
 | /                         |      <c>      |     <c>     |     <c>     |      <c>      |
 | /                         |       <       |             |             |               |
-| chipz (deflate/zlib/gzip) |  1.77x-2.78x  | 1.39x-1.88x | 1.61x-2.30x |  1.12x-3.52x  |
-| chipz (bzip2)             |  1.31x-1.88x  | 2.04x-2.78x | 2.17x-2.47x |  2.46x-7.80x  |
-| deflate (with checksum)   |  2.03x-3.57x  | 1.33x-3.91x | 1.87x-3.24x | *0.34x-0.94x* |
-| deflate (no checksum)     |  1.34x-3.31x  | 1.23x-1.71x | 1.75x-2.09x | *0.32x-0.93x* |
-| 3bz                       | *0.63x-0.96x* | 1.07x-1.54x | 2.12x-7.23x |  1.03x-3.45x  |
+| chipz (deflate/zlib/gzip) |  1.79x-2.76x  | 1.34x-1.87x | 1.61x-2.30x |  1.16x-4.03x  |
+| chipz (bzip2)             |  1.01x-1.32x  | 2.06x-2.70x | 2.17x-2.47x |  2.52x-8.52x  |
+| deflate (with checksum)   |  2.04x-3.41x  | 1.30x-3.91x | 1.87x-3.24x | *0.48x-1.80x* |
+| deflate (no checksum)     |  1.33x-3.16x  | 1.21x-1.73x | 1.75x-2.09x | *0.46x-1.72x* |
+| 3bz                       | *0.63x-0.93x* | 1.07x-1.55x | 2.12x-7.23x |  1.20x-4.65x  |
 |---------------------------+---------------+-------------+-------------+---------------|
-| zlib                      |  0.31x-0.54x  | 0.04x-0.12x | 1.00%-2.65% |  0.18%-0.26%  |
-| bzip2                     |  0.65x-0.81x  | 0.19x-0.22x | 4.15%-5.39% |  1.06%-2.16%  |
-| xz                        |  0.49x-0.62x  | 0.10x-0.17x | 1.04%-1.69% |  0.21%-0.41%  |
+| zlib                      |  0.31x-0.54x  | 0.04x-0.12x | 1.00%-2.65% |  0.18%-0.28%  |
+| bzip2                     |  0.66x-0.82x  | 0.20x-0.22x | 4.15%-5.39% |  1.08%-2.29%  |
+| xz                        |  0.49x-0.62x  | 0.10x-0.17x | 1.04%-1.69% |  0.21%-0.42%  |
 
 
 
@@ -444,7 +445,7 @@ and [[https://semelz.de/files/mario.png][badly-compressible]] image respectively
 
 
 
-*** SBCL-2.3.5
+*** SBCL-2.3.8
 :PROPERTIES:
 :CUSTOM_ID: performance-sbcl
 :END:
@@ -456,29 +457,29 @@ optimize for it; notably we use a different implementation of the various CRCs.
 |----------------------------+---------+--------+-----------+-----------+--------+--------+----------|
 | /                          |         |      < |           |           |        |        |          |
 |                            |     <r> |    <r> |       <r> |       <r> |    <r> |    <r> |      <r> |
-| openjdk-17.0.6_p10.tar.gz  |  2.618s | 5.661s |    6.166s |    7.935s | 13.75s | 10.34s |   12.49s |
-| openh264-2.3.1.tar.gz      |  0.280s | 0.858s |    0.893s |    1.341s | 1.580s | 2.956s |   3.185s |
-| gimp-2.10.32.tar.bz2       |  6.687s |      - |    9.897s |    10.48s | 14.09s |      - |        - |
-| gcc-11.3.0.tar.xz          |  7.263s |      - |    14.90s |    14.92s |      - |      - |        - |
-| ccl-1.12.1-linuxx86.tar.gz |  0.427s | 0.952s |    1.058s |    1.416s | 2.164s | 2.013s |   2.267s |
-| sbcl-2.3.3-source.tar.bz2  |  1.408s |      - |    2.017s |    2.152s | 3.517s |      - |        - |
-| Python-3.11.4.tar.xz       |  1.618s |      - |    3.093s |    3.083s |      - |      - |        - |
-| html_standard.html.z       |  0.053s | 0.076s |    0.110s |    0.143s | 0.273s | 0.185s |   0.259s |
-| pepper.z                   |  0.148s | 0.174s |    0.276s |    0.313s | 0.767s | 0.369s |   0.664s |
-| mario.z                    |  0.018s | 0.033s |    0.040s |    0.056s | 0.091s | 0.083s |   0.100s |
-| html_standard.html.bz2     |  0.373s |      - |    0.576s |    0.600s | 0.757s |      - |        - |
-| pepper.bz2                 |  0.512s |      - |    0.705s |    0.734s | 1.025s |      - |        - |
-| mario.bz2                  |  0.110s |      - |    0.135s |    0.147s | 0.254s |      - |        - |
-| html_standard.html.lzma    |  0.115s |      - |    0.185s |    0.205s |      - |      - |        - |
-| pepper.lzma                |  0.238s |      - |    0.384s |    0.415s |      - |      - |        - |
-| mario.lzma                 |  0.065s |      - |    0.107s |    0.119s |      - |      - |        - |
-| html_standard.html.xz      |  0.121s |      - |    0.221s |    0.221s |      - |      - |        - |
+| openjdk-17.0.6_p10.tar.gz  |  2.618s | 5.530s |    5.981s |    7.801s | 13.84s | 10.07s |   12.21s |
+| openh264-2.3.1.tar.gz      |  0.280s | 0.831s |    0.892s |    1.333s | 1.594s | 2.815s |   3.042s |
+| gimp-2.10.32.tar.bz2       |  6.687s |      - |    9.857s |    10.34s | 10.19s |      - |        - |
+| gcc-11.3.0.tar.xz          |  7.263s |      - |    14.93s |    14.94s |      - |      - |        - |
+| ccl-1.12.1-linuxx86.tar.gz |  0.427s | 0.923s |    1.028s |    1.386s | 2.182s | 1.950s |   2.206s |
+| sbcl-2.3.3-source.tar.bz2  |  1.408s |      - |    1.979s |    2.098s | 2.507s |      - |        - |
+| Python-3.11.4.tar.xz       |  1.618s |      - |    3.090s |    3.083s |      - |      - |        - |
+| html_standard.html.z       |  0.053s | 0.073s |    0.107s |    0.138s | 0.270s | 0.180s |   0.254s |
+| pepper.z                   |  0.148s | 0.171s |    0.273s |    0.311s | 0.754s | 0.364s |   0.657s |
+| mario.z                    |  0.018s | 0.032s |    0.039s |    0.055s | 0.091s | 0.081s |   0.098s |
+| html_standard.html.bz2     |  0.373s |      - |    0.566s |    0.587s | 0.571s |      - |        - |
+| pepper.bz2                 |  0.512s |      - |    0.714s |    0.740s | 0.802s |      - |        - |
+| mario.bz2                  |  0.110s |      - |    0.134s |    0.146s | 0.177s |      - |        - |
+| html_standard.html.lzma    |  0.115s |      - |    0.186s |    0.205s |      - |      - |        - |
+| pepper.lzma                |  0.238s |      - |    0.387s |    0.416s |      - |      - |        - |
+| mario.lzma                 |  0.065s |      - |    0.108s |    0.119s |      - |      - |        - |
+| html_standard.html.xz      |  0.121s |      - |    0.222s |    0.222s |      - |      - |        - |
 | pepper.xz                  |  0.262s |      - |    0.529s |    0.529s |      - |      - |        - |
 | mario.xz                   |  0.070s |      - |    0.117s |    0.117s |      - |      - |        - |
 
 
 
-*** CCL-1.12.1
+*** CCL-1.12.2
 :PROPERTIES:
 :CUSTOM_ID: performance-ccl
 :END:
@@ -497,25 +498,26 @@ CRC-64.
 |----------------------------+--------+-----------+-----------+--------+--------+----------|
 | /                          |      < |           |           |        |        |          |
 |                            |    <r> |       <r> |       <r> |    <r> |    <r> |      <r> |
-| openjdk-17.0.6_p10.tar.gz  | 53.40s |    37.66s |    39.09s | 64.60s | 48.82s |   54.33s |
-| openh264-2.3.1.tar.gz      | 7.071s |    6.584s |    6.777s | 10.07s | 9.573s |   10.29s |
-| gimp-2.10.32.tar.bz2       |      - |    34.72s |    35.31s | 72.54s |      - |        - |
-| gcc-11.3.0.tar.xz          |      - |    68.40s |    68.40s |      - |      - |        - |
-| ccl-1.12.1-linuxx86.tar.gz | 8.634s |    6.820s |    7.174s | 10.23s | 8.390s |   9.044s |
-| sbcl-2.3.3-source.tar.bz2  |      - |    6.454s |    6.860s | 17.92s |      - |        - |
-| Python-3.11.4.tar.xz       |      - |    13.26s |    13.15s |      - |      - |        - |
-| html_standard.html.z       | 0.828s |    0.646s |    0.681s | 0.963s | 0.902s |   1.565s |
-| pepper.z                   | 1.903s |    1.232s |    1.248s | 2.315s | 2.110s |   4.816s |
-| mario.z                    | 0.293s |    0.270s |    0.286s | 0.376s | 0.344s |   0.504s |
-| html_standard.html.bz2     |      - |    1.715s |    1.787s | 3.757s |      - |        - |
-| pepper.bz2                 |      - |    2.349s |    2.390s | 4.798s |      - |        - |
-| mario.bz2                  |      - |    0.503s |    0.515s | 1.288s |      - |        - |
-| html_standard.html.lzma    |      - |    0.698s |    0.731s |      - |      - |        - |
-| pepper.lzma                |      - |    1.416s |    1.454s |      - |      - |        - |
-| mario.lzma                 |      - |    0.429s |    0.442s |      - |      - |        - |
-| html_standard.html.xz      |      - |    1.015s |    1.020s |      - |      - |        - |
-| pepper.xz                  |      - |    2.598s |    2.610s |      - |      - |        - |
-| mario.xz                   |      - |    0.510s |    0.507s |      - |      - |        - |
+| openjdk-17.0.6_p10.tar.gz  | 52.87s |    36.56s |    39.65s | 63.12s | 48.52s |   54.23s |
+| openh264-2.3.1.tar.gz      | 7.327s |    6.236s |    6.751s | 9.911s | 10.04s |   10.65s |
+| gimp-2.10.32.tar.bz2       |      - |    33.84s |    34.74s | 73.68s |      - |        - |
+| gcc-11.3.0.tar.xz          |      - |    67.94s |    68.16s |      - |      - |        - |
+| ccl-1.12.1-linuxx86.tar.gz | 8.518s |    6.963s |    7.209s | 10.18s | 8.416s |   9.075s |
+| sbcl-2.3.3-source.tar.bz2  |      - |    6.693s |    6.903s | 18.04s |      - |        - |
+| Python-3.11.4.tar.xz       |      - |    13.10s |    13.10s |      - |      - |        - |
+| html_standard.html.z       | 0.847s |    0.646s |    0.689s | 0.940s | 0.895s |   1.582s |
+| pepper.z                   | 1.907s |    1.227s |    1.281s | 2.292s | 2.128s |   4.802s |
+| mario.z                    | 0.292s |    0.273s |    0.293s | 0.365s | 0.343s |   0.503s |
+| html_standard.html.bz2     |      - |    1.685s |    1.725s | 3.779s |      - |        - |
+| pepper.bz2                 |      - |    2.307s |    2.363s | 4.754s |      - |        - |
+| mario.bz2                  |      - |    0.494s |    0.515s | 1.317s |      - |        - |
+| html_standard.html.lzma    |      - |    0.696s |    0.752s |      - |      - |        - |
+| pepper.lzma                |      - |    1.418s |    1.491s |      - |      - |        - |
+| mario.lzma                 |      - |    0.431s |    0.458s |      - |      - |        - |
+| html_standard.html.xz      |      - |    1.013s |    1.017s |      - |      - |        - |
+| pepper.xz                  |      - |    2.602s |    2.592s |      - |      - |        - |
+| mario.xz                   |      - |    0.503s |    0.503s |      - |      - |        - |
+
 
 
 *** ECL-21.2.1
@@ -550,36 +552,38 @@ bzip2 as a result.
 
 
 
-*** ABCL-1.9.1
+*** ABCL-1.9.2
 :PROPERTIES:
 :CUSTOM_ID: performance-abcl
 :END:
 
 ABCL's ~replace~ and manual array ops are obscenely slow, which punishes copying
 and Lisp-side buffering. As a result, the straightforward unbuffered code of
-Mai's Deflate ends up being the fastest and all other Deflate implementations
-perform close to the point of unusability.
+Mai's Deflate outperforms several buffered implementations, especially for
+heavily compressed files.
 
-Our bzip2/XZ performance isn't that bad compared to ECL, likely due to the lower
-amount of bit diddling; note however how harshly the runtime increases for the
-(highly-compressed, hence copy-heavy) ~pepper.dat~.
+In general, Deflate performance is close to the point of unusability; you're
+likely better off using ~java.util.zip~. Our bzip2/XZ performance isn't that bad
+compared to ECL, likely due to the lower amount of bit diddling; note however
+how harshly the runtime increases for the (highly-compressed, hence copy-heavy)
+~pepper.dat~.
 
 | file                    |    3bz | decom (M) | decom (S) |  chipz |   defl | defl (C) |
 |-------------------------+--------+-----------+-----------+--------+--------+----------|
 | /                       |      < |           |           |        |        |          |
 |                         |    <r> |       <r> |       <r> |    <r> |    <r> |      <r> |
-| html_standard.html.z    | 52.78s |    23.54s |    26.76s | 55.66s | 17.30s |   17.61s |
-| pepper.z                | 85.46s |    83.13s |    97.38s | 92.91s | 26.50s |   28.65s |
-| mario.z                 | 24.25s |    7.021s |    8.783s | 24.68s | 6.506s |   6.598s |
-| html_standard.html.bz2  |      - |    17.76s |    20.84s | 101.3s |      - |        - |
-| pepper.bz2              |      - |    48.34s |    51.39s | 118.9s |      - |        - |
-| mario.bz2               |      - |    5.096s |    6.212s | 39.75s |      - |        - |
-| html_standard.html.lzma |      - |    32.36s |    35.23s |      - |      - |        - |
-| pepper.lzma             |      - |    111.3s |    117.8s |      - |      - |        - |
-| mario.lzma              |      - |    17.10s |    18.48s |      - |      - |        - |
-| html_standard.html.xz   |      - |    34.04s |    34.00s |      - |      - |        - |
-| pepper.xz               |      - |    117.1s |    116.5s |      - |      - |        - |
-| mario.xz                |      - |    16.95s |    16.97s |      - |      - |        - |
+| html_standard.html.z    | 62.56s |    23.40s |    34.95s | 55.66s | 39.57s |   42.04s |
+| pepper.z                | 98.34s |    81.41s |    95.19s | 94.55s | 37.10s |   39.35s |
+| mario.z                 | 29.39s |    6.324s |    12.18s | 25.46s | 10.86s |   11.01s |
+| html_standard.html.bz2  |      - |    17.22s |    26.33s | 103.5s |      - |        - |
+| pepper.bz2              |      - |    47.34s |    57.43s | 119.2s |      - |        - |
+| mario.bz2               |      - |    4.798s |    9.454s | 40.87s |      - |        - |
+| html_standard.html.lzma |      - |    32.37s |    41.58s |      - |      - |        - |
+| pepper.lzma             |      - |    111.3s |    130.4s |      - |      - |        - |
+| mario.lzma              |      - |    17.09s |    22.34s |      - |      - |        - |
+| html_standard.html.xz   |      - |    35.51s |    34.80s |      - |      - |        - |
+| pepper.xz               |      - |    121.5s |    120.9s |      - |      - |        - |
+| mario.xz                |      - |    16.86s |    16.83s |      - |      - |        - |
 
 
 
