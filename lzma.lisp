@@ -62,8 +62,9 @@
     lrd))
 
 (define-fast-inline-function lrd-normalize ((lrd lzma-range-decoder))
-  ;; It is enough to read a single byte since only `lrd-decode-predicted-bit'
-  ;; can lower `range'; see the comments in that function.
+  ;; It is enough to read a single byte since the only places where `range' is
+  ;; lowered are `lrd-decode-predicted-bit' (see the comments there) and
+  ;; `lrd-decode-fixed-bits' (which only discards one bit before normalization).
   (when (< (lrd-range lrd) (ash 1 24))
     (setf (lrd-range lrd) (ash (lrd-range lrd) 8)
           (lrd-code lrd) (logior (ash (lrd-code lrd) 8)
