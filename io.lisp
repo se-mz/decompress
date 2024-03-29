@@ -293,30 +293,30 @@
                        (assert (= count (cbs-count cbs)))
                        ;; Sync first so `try-refill' has the right information.
                        (setf (buffer-stream-start src) (counted-buffer-stream-start cbs))
-                       (if (try-refill src)
-                           (let ((amount (if limit
-                                             (min (- (buffer-stream-end src)
-                                                     (buffer-stream-start src))
-                                                  (- limit count))
-                                             (- (buffer-stream-end src)
-                                                (buffer-stream-start src)))))
-                             (incf (counted-buffer-stream-count cbs) amount)
-                             (values (buffer-stream-buffer src)
-                                     (buffer-stream-start src)
-                                     (+ (buffer-stream-start src) amount)))
-                           ;; `try-refill' can update the source to (empty)
-                           ;; buffers even when it fails, so synchronize first.
-                           ;; Refill functions always return nil after returning
-                           ;; it once, so this can't loop.
-                           (if (eq (buffer-stream-buffer cbs)
-                                   (buffer-stream-buffer src))
-                               nil
-                               (progn
-                                 (assert (= (buffer-stream-start src)
-                                            (buffer-stream-end src)))
-                                 (values (buffer-stream-buffer src)
-                                         (buffer-stream-start src)
-                                         (buffer-stream-end src))))))
+                       (cond
+                         ((try-refill src)
+                          (let ((amount (if limit
+                                            (min (- (buffer-stream-end src)
+                                                    (buffer-stream-start src))
+                                                 (- limit count))
+                                            (- (buffer-stream-end src)
+                                               (buffer-stream-start src)))))
+                            (incf (counted-buffer-stream-count cbs) amount)
+                            (values (buffer-stream-buffer src)
+                                    (buffer-stream-start src)
+                                    (+ (buffer-stream-start src) amount))))
+                         ;; `try-refill' can update the source to (empty)
+                         ;; buffers even when it fails, so synchronize first.
+                         ;; Refill functions always return nil after returning
+                         ;; it once, so this can't loop.
+                         ((eq (buffer-stream-buffer cbs)
+                              (buffer-stream-buffer src))
+                          nil)
+                         (t (assert (= (buffer-stream-start src)
+                                       (buffer-stream-end src)))
+                            (values (buffer-stream-buffer src)
+                                    (buffer-stream-start src)
+                                    (buffer-stream-end src)))))
                      (progn
                        (funcall (counted-buffer-stream-on-eof cbs))
                        nil)))))
